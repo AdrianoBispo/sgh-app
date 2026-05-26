@@ -15,7 +15,7 @@ export function Estoque() {
 
   const filteredItems = inventory.filter(i => 
     i.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    i.batch.includes(searchTerm)
+    i.batch.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
