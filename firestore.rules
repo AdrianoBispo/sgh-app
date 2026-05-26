@@ -199,10 +199,11 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow read, list: if isSignedIn();
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() 
           && isValidId(logId) 
-          && isValidAuditLog(incoming());
+          && isValidAuditLog(incoming())
+          && incoming().userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
   }

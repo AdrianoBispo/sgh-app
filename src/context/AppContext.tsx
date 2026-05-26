@@ -3,7 +3,7 @@ import { Patient, Doctor, Appointment, InventoryItem, ReportLog, AuditLog, Role 
 import { mockPatients, mockDoctors, mockAppointments, mockInventory, mockReportLogs } from '../data/mockData';
 import { auth, db } from '../lib/firebase';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, query, where } from 'firebase/firestore';
 import { OperationType, handleFirestoreError } from '../lib/firebase-errors';
 
 interface AppContextData {
@@ -134,12 +134,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkLoaded();
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'reportLogs'));
 
-    const unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
-      const data: AuditLog[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
-      setAuditLogs(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+    let unsubAudit = () => {};
+    if (currentUserRole === 'admin') {
+      unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
+        const data: AuditLog[] = [];
+        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
+        setAuditLogs(data);
+        checkLoaded();
+      }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+    } else {
+      const q = query(collection(db, 'auditLogs'), where('userId', '==', user.uid));
+      unsubAudit = onSnapshot(q, (snapshot) => {
+        const data: AuditLog[] = [];
+        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
+        setAuditLogs(data);
+        checkLoaded();
+      }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+    }
 
     return () => {
       unsubPatients();
