@@ -20,6 +20,9 @@ export function Dashboard() {
   const todayAppointments = appointments.filter(a => a.date === today);
   const todayAppointmentsCount = todayAppointments.length;
   
+  const waitingCount = todayAppointments.filter(a => a.status === 'Aguardando Atendimento').length;
+  const inProgressCount = todayAppointments.filter(a => a.status === 'Em Andamento').length;
+  
   const chartData = Array.from({ length: 7 }).map((_, i) => {
     const d = subDays(new Date(), 6 - i);
     const dateStr = format(d, 'yyyy-MM-dd');
@@ -32,7 +35,7 @@ export function Dashboard() {
   });
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 md:grid-rows-6 gap-4 flex-1">
+    <div className="grid grid-cols-1 md:grid-cols-12 md:grid-rows-6 gap-4 flex-1 h-full">
       
       {/* Stats - Today's Appointments */}
       <div className="md:col-span-3 md:row-span-2 bg-primary-600 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
@@ -49,10 +52,40 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* Stats - Aguardando Atendimento */}
+      <div className="md:col-span-3 md:row-span-2 bg-amber-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
+        <div>
+          <p className="text-amber-100 text-sm font-medium">Aguardando Atendimento</p>
+          {!isDataLoaded ? (
+            <div className="h-10 bg-amber-400/50 rounded w-16 mt-1 animate-pulse"></div>
+          ) : (
+            <h2 className="text-4xl font-bold mt-1">{waitingCount}</h2>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-sm text-amber-100 bg-amber-600/50 p-2 rounded-xl mt-4 md:mt-0 max-w-fit">
+          <span className="font-bold text-white">Recepção</span>
+        </div>
+      </div>
+
+      {/* Stats - Em Andamento */}
+      <div className="md:col-span-3 md:row-span-2 bg-blue-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
+        <div>
+          <p className="text-blue-100 text-sm font-medium">Em Andamento</p>
+          {!isDataLoaded ? (
+            <div className="h-10 bg-blue-400/50 rounded w-16 mt-1 animate-pulse"></div>
+          ) : (
+            <h2 className="text-4xl font-bold mt-1">{inProgressCount}</h2>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-sm text-blue-100 bg-blue-600/50 p-2 rounded-xl mt-4 md:mt-0 max-w-fit">
+          <span className="font-bold text-white">Consultórios</span>
+        </div>
+      </div>
+
       {/* Stats - Active Patients */}
       <div className="md:col-span-3 md:row-span-2 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
         <div>
-          <p className="text-gray-500 text-sm font-medium">Pacientes Cadastrados Ativos</p>
+          <p className="text-gray-500 text-sm font-medium">Pacientes Ativos</p>
           {!isDataLoaded ? (
             <div className="h-10 bg-gray-200 rounded w-16 mt-1 animate-pulse"></div>
           ) : (
@@ -68,26 +101,26 @@ export function Dashboard() {
       </div>
 
       {/* Volume Chart */}
-      <div className="md:col-span-6 md:row-span-2 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-        <h3 className="text-gray-800 font-bold text-lg mb-4">Volume de Atendimentos (Últimos 7 dias)</h3>
+      <div className="md:col-span-4 md:row-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between min-h-[300px]">
+        <h3 className="text-gray-800 font-bold text-lg mb-4">Volume (7 dias)</h3>
         <div className="flex-1 min-h-[150px] relative">
           {!isDataLoaded ? (
              <div className="absolute inset-0 flex items-end justify-between px-4 pb-6 pt-4 animate-pulse">
                 {Array.from({ length: 7 }).map((_, i) => (
-                   <div key={i} className="w-10 bg-gray-200 rounded-t flex-shrink-0" style={{ height: `${Math.random() * 60 + 20}%`}}></div>
+                   <div key={i} className="w-6 bg-gray-200 rounded-t flex-shrink-0" style={{ height: `${Math.random() * 60 + 20}%`}}></div>
                 ))}
              </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6B7280' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6B7280' }} width={30} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                   cursor={{ fill: '#F3F4F6' }}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
                 <Bar dataKey="Consultas" stackId="a" fill="#0ea5e9" radius={[0, 0, 4, 4]} />
                 <Bar dataKey="Exames" stackId="a" fill="#34d399" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -97,7 +130,7 @@ export function Dashboard() {
       </div>
 
       {/* Next Appointments Table */}
-      <div className="md:col-span-12 md:row-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col overflow-hidden">
+      <div className="md:col-span-8 md:row-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col overflow-hidden min-h-[300px]">
         <div className="flex justify-between items-center mb-6">
           <h3 className="font-bold text-gray-800 text-lg">Próximos Atendimentos (Hoje)</h3>
           <button onClick={() => navigate('/agendamentos')} className="text-primary-600 text-sm font-semibold hover:text-primary-700">Ver Agenda Completa</button>
