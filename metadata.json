@@ -1,0 +1,8 @@
+{
+  "name": "Sistema de Gestão Hospitalar São Gabriel",
+  "description": "Sistema integrado de gestão hospitalar contemplando pacientes, médicos, agendamentos, estoque e relatórios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

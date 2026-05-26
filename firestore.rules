@@ -1,0 +1,190 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ----------------------------------------------------
+    // GLOBAL HELPERS
+    // ----------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ----------------------------------------------------
+    // VALIDATION BLUEPRINTS
+    // ----------------------------------------------------
+    function isValidPatient(data) {
+      return data.keys().hasAll(['name', 'cpf', 'birthDate', 'contact', 'status'])
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.cpf is string && data.cpf.size() > 0 && data.cpf.size() <= 20
+          && data.birthDate is string && data.birthDate.size() > 0 && data.birthDate.size() <= 30
+          && data.contact is string && data.contact.size() > 0 && data.contact.size() <= 100
+          && data.status is string && data.status in ['active', 'inactive']
+          // Optional fields
+          && (('bloodType' in data) ? (data.bloodType is string && data.bloodType.size() <= 10) : true)
+          && (('allergies' in data) ? (data.allergies is string && data.allergies.size() <= 1000) : true)
+          && (('comorbidities' in data) ? (data.comorbidities is string && data.comorbidities.size() <= 1000) : true);
+    }
+    
+    function isValidPatientCreate(data) {
+      return isValidPatient(data) 
+        && data.keys().size() <= 8; // Enforce exact keys or max keys
+    }
+
+    function isValidDoctor(data) {
+      return data.keys().hasAll(['name', 'crm', 'specialty', 'contact', 'availability', 'status'])
+          && data.keys().size() == 6
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.crm is string && data.crm.size() > 0 && data.crm.size() <= 50
+          && data.specialty is string && data.specialty.size() > 0 && data.specialty.size() <= 100
+          && data.contact is string && data.contact.size() > 0 && data.contact.size() <= 100
+          && data.availability is string && data.availability.size() > 0 && data.availability.size() <= 200
+          && data.status is string && data.status in ['active', 'inactive'];
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['patientId', 'doctorId', 'type', 'date', 'time', 'status'])
+          && data.patientId is string && data.patientId.size() > 0 && data.patientId.size() <= 128
+          && data.doctorId is string && data.doctorId.size() > 0 && data.doctorId.size() <= 128
+          && data.type is string && data.type in ['Consulta', 'Exame']
+          && data.date is string && data.date.size() > 0 && data.date.size() <= 20
+          && data.time is string && data.time.size() > 0 && data.time.size() <= 20
+          && data.status is string && data.status in ['Agendado', 'Concluído', 'Cancelado']
+          // Optional field check
+          && (('notes' in data) ? (data.notes is string && data.notes.size() <= 2000) : true);
+    }
+    
+    function isValidAppointmentCreate(data) {
+      return isValidAppointment(data)
+          && data.keys().size() <= 7;
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll(['name', 'batch', 'expiryDate', 'quantity', 'minQuantity', 'status'])
+          && data.keys().size() == 6
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+          && data.batch is string && data.batch.size() > 0 && data.batch.size() <= 100
+          && data.expiryDate is string && data.expiryDate.size() > 0 && data.expiryDate.size() <= 30
+          && data.quantity is number && data.quantity >= 0
+          && data.minQuantity is number && data.minQuantity >= 0
+          && data.status is string && data.status in ['active', 'inactive'];
+    }
+
+    function isValidReportLog(data) {
+      return data.keys().hasAll(['title', 'type', 'generatedAt', 'generatedBy', 'parameters'])
+          && data.keys().size() == 5
+          && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+          && data.type is string && data.type.size() > 0 && data.type.size() <= 100
+          && data.generatedAt is string && data.generatedAt.size() > 0 && data.generatedAt.size() <= 30
+          && data.generatedBy is string && data.generatedBy.size() > 0 && data.generatedBy.size() <= 128
+          && data.parameters is string && data.parameters.size() <= 2000;
+    }
+
+    // ----------------------------------------------------
+    // COLLECTIONS
+    // ----------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Test collection for bootup connection check
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && request.auth.uid == userId 
+          && incoming().role in ['reception', 'doctor', 'nurse', 'pharmacy']);
+      allow update: if isAdmin(); // Role changes must be done via Firebase Console by admin or by admin role
+      allow delete: if isAdmin();
+    }
+
+    match /patients/{patientId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && isValidId(patientId) 
+          && isValidPatientCreate(incoming()));
+      allow update: if isAdmin() || (isSignedIn() 
+          && isValidId(patientId) 
+          && isValidPatient(incoming())
+          && (
+            // Only allow updating these fields
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'bloodType', 'allergies', 'comorbidities', 'status'])
+            // cpf and birthDate should be immutable
+            && incoming().cpf == existing().cpf
+            && incoming().birthDate == existing().birthDate
+          ));
+      allow delete: if isAdmin(); // Logical deletes used (status = inactive)
+    }
+
+    match /doctors/{doctorId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && isValidId(doctorId) 
+          && isValidDoctor(incoming()));
+      allow update: if isAdmin() || (isSignedIn() 
+          && isValidId(doctorId) 
+          && isValidDoctor(incoming())
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'availability', 'specialty', 'status'])
+            && incoming().crm == existing().crm
+          ));
+      allow delete: if isAdmin();
+    }
+
+    match /appointments/{appointmentId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && isValidId(appointmentId) 
+          && isValidAppointmentCreate(incoming()));
+      allow update: if isAdmin() || (isSignedIn() 
+          && isValidId(appointmentId) 
+          && isValidAppointment(incoming())
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['date', 'time', 'status', 'notes', 'doctorId', 'type'])
+            && incoming().patientId == existing().patientId
+          ));
+      allow delete: if isAdmin();
+    }
+
+    match /inventory/{inventoryId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && isValidId(inventoryId) 
+          && isValidInventoryItem(incoming()));
+      allow update: if isAdmin() || (isSignedIn() 
+          && isValidId(inventoryId) 
+          && isValidInventoryItem(incoming())
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['quantity', 'status', 'minQuantity'])
+            && incoming().name == existing().name
+            && incoming().batch == existing().batch
+            && incoming().expiryDate == existing().expiryDate
+          ));
+      allow delete: if isAdmin();
+    }
+
+    match /reportLogs/{reportLogId} {
+      allow read, list: if isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() 
+          && isValidId(reportLogId) 
+          && isValidReportLog(incoming()));
+      allow update: if isAdmin(); // Reports are immutable once generated unless by admin
+      allow delete: if isAdmin();
+    }
+  }
+}

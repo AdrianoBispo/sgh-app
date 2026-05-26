@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "Patient": {
+      "title": "Patient",
+      "description": "A patient registered in the hospital.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cpf": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "contact": { "type": "string" },
+        "bloodType": { "type": "string" },
+        "allergies": { "type": "string" },
+        "comorbidities": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["name", "cpf", "birthDate", "contact", "status"]
+    },
+    "Doctor": {
+      "title": "Doctor",
+      "description": "A doctor registered in the hospital.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "crm": { "type": "string" },
+        "specialty": { "type": "string" },
+        "contact": { "type": "string" },
+        "availability": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["name", "crm", "specialty", "contact", "availability", "status"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "An appointment or exam scheduled in the hospital.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "type": { "type": "string", "enum": ["Consulta", "Exame"] },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "status": { "type": "string", "enum": ["Agendado", "Concluído", "Cancelado"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["patientId", "doctorId", "type", "date", "time", "status"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "An item in the hospital inventory.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "batch": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "quantity": { "type": "number" },
+        "minQuantity": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["name", "batch", "expiryDate", "quantity", "minQuantity", "status"]
+    },
+    "ReportLog": {
+      "title": "Report Log",
+      "description": "A log of a generated report.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "generatedAt": { "type": "string" },
+        "generatedBy": { "type": "string" },
+        "parameters": { "type": "string" }
+      },
+      "required": ["title", "type", "generatedAt", "generatedBy", "parameters"]
+    }
+  },
+  "firestore": {
+    "patients/{patientId}": {
+      "schema": { "$ref": "#/entities/Patient" },
+      "description": "Collection of all patients."
+    },
+    "doctors/{doctorId}": {
+      "schema": { "$ref": "#/entities/Doctor" },
+      "description": "Collection of all doctors."
+    },
+    "appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Collection of all appointments."
+    },
+    "inventory/{inventoryId}": {
+      "schema": { "$ref": "#/entities/InventoryItem" },
+      "description": "Collection of all inventory items."
+    },
+    "reportLogs/{reportLogId}": {
+      "schema": { "$ref": "#/entities/ReportLog" },
+      "description": "Collection of all generated reports."
+    }
+  }
+}
