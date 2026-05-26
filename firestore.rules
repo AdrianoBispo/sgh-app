@@ -186,5 +186,24 @@ service cloud.firestore {
       allow update: if isAdmin(); // Reports are immutable once generated unless by admin
       allow delete: if isAdmin();
     }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['action', 'entityType', 'entityId', 'entityName', 'details', 'userId', 'timestamp'])
+          && data.action is string
+          && data.entityType is string
+          && data.entityId is string
+          && data.entityName is string
+          && data.details is string
+          && data.userId is string
+          && data.timestamp is string;
+    }
+
+    match /auditLogs/{logId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() 
+          && isValidId(logId) 
+          && isValidAuditLog(incoming());
+      allow update, delete: if isAdmin();
+    }
   }
 }
