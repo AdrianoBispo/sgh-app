@@ -52,3 +52,14 @@ export interface ReportLog {
   generatedBy: string;
   parameters: string;
 }
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  details: string;
+  userId: string;
+  timestamp: string;
+}

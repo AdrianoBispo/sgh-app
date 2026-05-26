@@ -7,7 +7,7 @@ import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { validateCPF } from '../lib/validators';
 
 export function Pacientes() {
-  const { patients, addPatient, updatePatient, currentUserRole, isDataLoaded, appointments, doctors } = useAppContext();
+  const { patients, addPatient, updatePatient, currentUserRole, user, isDataLoaded, appointments, doctors, addAuditLog } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
@@ -46,8 +46,21 @@ export function Pacientes() {
       status: (formData.get('status') as any) || 'active',
     };
 
-    if (editingPatient) updatePatient(newPatient);
-    else addPatient(newPatient);
+    if (editingPatient) {
+      updatePatient(newPatient);
+      addAuditLog({
+        id: Math.random().toString(36).substr(2, 9),
+        action: 'Edição de Perfil (Paciente)',
+        entityType: 'Paciente',
+        entityId: newPatient.id,
+        entityName: newPatient.name,
+        details: `Atualizou os dados de ${newPatient.name}`,
+        userId: user?.uid || currentUserRole || 'unknown',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      addPatient(newPatient);
+    }
     
     setIsModalOpen(false);
   };
@@ -60,7 +73,22 @@ export function Pacientes() {
   const handleToggleStatus = () => {
     if (!confirmModal.patient) return;
     const p = confirmModal.patient;
-    updatePatient({ ...p, status: p.status === 'active' ? 'inactive' : 'active' });
+    const newStatus = p.status === 'active' ? 'inactive' : 'active';
+    updatePatient({ ...p, status: newStatus });
+    
+    if (newStatus === 'inactive') {
+      addAuditLog({
+        id: Math.random().toString(36).substr(2, 9),
+        action: 'Exclusão Lógica (Paciente)',
+        entityType: 'Paciente',
+        entityId: p.id,
+        entityName: p.name,
+        details: `Desativou o paciente ${p.name}`,
+        userId: user?.uid || currentUserRole || 'unknown',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     setConfirmModal({isOpen: false, patient: null});
   };
 

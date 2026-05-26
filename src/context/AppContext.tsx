@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Patient, Doctor, Appointment, InventoryItem, ReportLog, Role } from '../types';
+import { Patient, Doctor, Appointment, InventoryItem, ReportLog, AuditLog, Role } from '../types';
 import { mockPatients, mockDoctors, mockAppointments, mockInventory, mockReportLogs } from '../data/mockData';
 import { auth, db } from '../lib/firebase';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -17,6 +17,7 @@ interface AppContextData {
   appointments: Appointment[];
   inventory: InventoryItem[];
   reportLogs: ReportLog[];
+  auditLogs: AuditLog[];
   
   // Basic CRUD for MVP
   addPatient: (p: Patient) => void;
@@ -32,6 +33,7 @@ interface AppContextData {
   updateInventoryItem: (i: InventoryItem) => void;
   
   addReportLog: (r: ReportLog) => void;
+  addAuditLog: (a: AuditLog) => void;
   
   isDataLoaded: boolean;
 }
@@ -49,6 +51,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [reportLogs, setReportLogs] = useState<ReportLog[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -90,7 +93,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let loadedCount = 0;
     const checkLoaded = () => {
       loadedCount++;
-      if (loadedCount === 5) {
+      if (loadedCount === 6) {
         setIsDataLoaded(true);
       }
     };
@@ -131,12 +134,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkLoaded();
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'reportLogs'));
 
+    const unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
+      const data: AuditLog[] = [];
+      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
+      setAuditLogs(data);
+      checkLoaded();
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+
     return () => {
       unsubPatients();
       unsubDoctors();
       unsubAppointments();
       unsubInventory();
       unsubReports();
+      unsubAudit();
     };
   }, [user]);
 
@@ -225,12 +236,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const addAuditLog = async (a: AuditLog) => {
+    const { id, ...data } = a;
+    try {
+      await setDoc(doc(db, 'auditLogs', id), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `auditLogs/${id}`);
+    }
+  };
+
   return (
     <AppContext.Provider value={{
       currentUserRole, setCurrentUserRole, user, loading, logout, isDataLoaded,
-      patients, doctors, appointments, inventory, reportLogs,
+      patients, doctors, appointments, inventory, reportLogs, auditLogs,
       addPatient, updatePatient, addDoctor, updateDoctor,
-      addAppointment, updateAppointment, addInventoryItem, updateInventoryItem, addReportLog
+      addAppointment, updateAppointment, addInventoryItem, updateInventoryItem, addReportLog, addAuditLog
     }}>
       {children}
     </AppContext.Provider>

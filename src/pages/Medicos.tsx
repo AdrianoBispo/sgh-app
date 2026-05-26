@@ -7,7 +7,7 @@ import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { validateCRM } from '../lib/validators';
 
 export function Medicos() {
-  const { doctors, addDoctor, updateDoctor, currentUserRole, isDataLoaded } = useAppContext();
+  const { doctors, addDoctor, updateDoctor, currentUserRole, user, isDataLoaded, addAuditLog } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
@@ -44,8 +44,21 @@ export function Medicos() {
       status: (formData.get('status') as any) || 'active',
     };
 
-    if (editingDoctor) updateDoctor(newDoc);
-    else addDoctor(newDoc);
+    if (editingDoctor) {
+      updateDoctor(newDoc);
+      addAuditLog({
+        id: Math.random().toString(36).substr(2, 9),
+        action: 'Edição de Perfil (Médico)',
+        entityType: 'Médico',
+        entityId: newDoc.id,
+        entityName: newDoc.name,
+        details: `Atualizou os dados de ${newDoc.name} (${newDoc.specialty})`,
+        userId: user?.uid || currentUserRole || 'unknown',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      addDoctor(newDoc);
+    }
     
     setIsModalOpen(false);
   };
@@ -58,7 +71,22 @@ export function Medicos() {
   const handleToggleStatus = () => {
     if (!confirmModal.doctor) return;
     const d = confirmModal.doctor;
-    updateDoctor({ ...d, status: d.status === 'active' ? 'inactive' : 'active' });
+    const newStatus = d.status === 'active' ? 'inactive' : 'active';
+    updateDoctor({ ...d, status: newStatus });
+    
+    if (newStatus === 'inactive') {
+      addAuditLog({
+        id: Math.random().toString(36).substr(2, 9),
+        action: 'Exclusão Lógica (Médico)',
+        entityType: 'Médico',
+        entityId: d.id,
+        entityName: d.name,
+        details: `Desativou o médico ${d.name}`,
+        userId: user?.uid || currentUserRole || 'unknown',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     setConfirmModal({isOpen: false, doctor: null});
   };
 

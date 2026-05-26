@@ -1,4 +1,4 @@
-import { Patient, Doctor, Appointment, InventoryItem, ReportLog } from '../types';
+import { Patient, Doctor, Appointment, InventoryItem, ReportLog, AuditLog } from '../types';
 
 export const mockPatients: Patient[] = [
   { id: '1', name: 'João Silva', cpf: '111.222.333-44', birthDate: '1985-04-12', contact: '(11) 98888-7777', bloodType: 'O+', allergies: 'Amendoim', status: 'active' },
@@ -26,4 +26,8 @@ export const mockInventory: InventoryItem[] = [
 
 export const mockReportLogs: ReportLog[] = [
   { id: '1', title: 'Relatório de Atendimentos', type: 'Atendimentos', generatedAt: new Date().toISOString(), generatedBy: 'Admin', parameters: 'Data: Hoje' }
+];
+
+export const mockAuditLogs: AuditLog[] = [
+  { id: '1', action: 'Exclusão Lógica (Paciente)', entityType: 'Paciente', entityId: '3', entityName: 'Antônio Souza', details: 'Desativou o paciente Antônio Souza', userId: 'admin', timestamp: new Date(Date.now() - 86400000).toISOString() }
 ];

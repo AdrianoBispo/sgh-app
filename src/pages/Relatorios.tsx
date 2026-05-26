@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Download, FileText, Filter } from 'lucide-react';
-import { ReportLog } from '../types';
+import { Download, FileText, Filter, List, Activity } from 'lucide-react';
+import { ReportLog, AuditLog } from '../types';
 
 export function Relatorios() {
-  const { reportLogs, addReportLog, currentUserRole, patients, doctors, appointments, inventory, isDataLoaded } = useAppContext();
+  const { reportLogs, auditLogs, addReportLog, currentUserRole, patients, doctors, appointments, inventory, isDataLoaded } = useAppContext();
+  const [activeTab, setActiveTab] = useState<'reports' | 'audit'>('reports');
   const [reportType, setReportType] = useState('Atendimentos');
   const [period, setPeriod] = useState('7dias');
 
@@ -67,8 +68,27 @@ export function Relatorios() {
 
   return (
     <div className="space-y-6 flex-1 flex flex-col">
-      {canGenerate && (
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6 sm:p-8">
+      <div className="flex space-x-2 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`flex-1 py-3 text-sm font-medium border-b-2 flex items-center justify-center gap-2 transition ${activeTab === 'reports' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <List className="w-4 h-4" /> Relatórios
+        </button>
+        {currentUserRole === 'admin' && (
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`flex-1 py-3 text-sm font-medium border-b-2 flex items-center justify-center gap-2 transition ${activeTab === 'audit' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Activity className="w-4 h-4" /> Logs de Auditoria
+          </button>
+        )}
+      </div>
+
+      {activeTab === 'reports' ? (
+        <>
+          {canGenerate && (
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6 sm:p-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-6 flex items-center">
             <Filter className="w-5 h-5 mr-2 text-primary-600" />
             Gerador de Relatórios
@@ -164,7 +184,56 @@ export function Relatorios() {
           </table>
         </div>
       </div>
-      
+      </>
+      ) : (
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+          <div className="p-6 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-800">Trilha de Auditoria (Ações Críticas)</h2>
+            <p className="text-sm text-gray-500 mt-1">Exclusões lógicas, edições sensíveis e retiradas de estoque.</p>
+          </div>
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="bg-gray-50 text-gray-600 font-medium">
+                <tr>
+                  <th className="px-6 py-3">Data/Hora</th>
+                  <th className="px-6 py-3">Ação</th>
+                  <th className="px-6 py-3">Entidade</th>
+                  <th className="px-6 py-3">Referência</th>
+                  <th className="px-6 py-3">Detalhes</th>
+                  <th className="px-6 py-3">ID Autor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 text-gray-800">
+                {!isDataLoaded ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-48"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                    </tr>
+                  ))
+                ) : auditLogs.length > 0 ? (
+                  [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(log => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
+                      <td className="px-6 py-4 font-medium"><span className="px-2.5 py-1 bg-gray-100 rounded-lg text-xs font-semibold">{log.action}</span></td>
+                      <td className="px-6 py-4">{log.entityType}</td>
+                      <td className="px-6 py-4">{log.entityName}</td>
+                      <td className="px-6 py-4 text-gray-500 whitespace-normal min-w-[200px]">{log.details}</td>
+                      <td className="px-6 py-4 text-sm font-mono text-gray-400">{log.userId}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum evento de auditoria registrado no momento.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

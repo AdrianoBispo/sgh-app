@@ -5,7 +5,7 @@ import { InventoryItem } from '../types';
 import { Modal } from '../components/ui/Modal';
 
 export function Estoque() {
-  const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, isDataLoaded } = useAppContext();
+  const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, user, isDataLoaded, addAuditLog } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -32,8 +32,23 @@ export function Estoque() {
       status: (formData.get('status') as any) || 'active',
     };
 
-    if (editingItem) updateInventoryItem(newItem);
-    else addInventoryItem(newItem);
+    if (editingItem) {
+      updateInventoryItem(newItem);
+      if (editingItem.status === 'active' && newItem.status === 'inactive') {
+        addAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          action: 'Exclusão Lógica (Estoque)',
+          entityType: 'Estoque',
+          entityId: newItem.id,
+          entityName: newItem.name,
+          details: `Desativou o item ${newItem.name} (Lote: ${newItem.batch})`,
+          userId: user?.uid || currentUserRole || 'unknown',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } else {
+      addInventoryItem(newItem);
+    }
     
     setIsModalOpen(false);
   };
@@ -203,11 +218,24 @@ export function Estoque() {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
           const qtd = parseInt(fd.get('withdrawAmount') as string, 10);
+          const reason = fd.get('reason') as string;
           if (withdrawModal.item && qtd > 0 && qtd <= withdrawModal.item.quantity) {
              updateInventoryItem({
                ...withdrawModal.item,
                quantity: withdrawModal.item.quantity - qtd
              });
+             
+             addAuditLog({
+               id: Math.random().toString(36).substr(2, 9),
+               action: 'Saída de Estoque',
+               entityType: 'Estoque',
+               entityId: withdrawModal.item.id,
+               entityName: withdrawModal.item.name,
+               details: `Retirada de ${qtd} unidade(s). Motivo: ${reason}`,
+               userId: user?.uid || currentUserRole || 'unknown',
+               timestamp: new Date().toISOString()
+             });
+
              setWithdrawModal({isOpen: false, item: null});
           } else {
              alert('Quantidade inválida.');
