@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Plus, Edit2, XCircle, AlertTriangle, Calendar as CalendarIcon, LayoutList, Search } from 'lucide-react';
+import { Plus, Edit2, XCircle, AlertTriangle, Calendar as CalendarIcon, LayoutList, Search, FileText } from 'lucide-react';
 import { Appointment } from '../types';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
@@ -17,6 +17,7 @@ export function Agendamentos() {
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [searchTerm, setSearchTerm] = useState('');
+  const [docModal, setDocModal] = useState<{isOpen: boolean; appt: Appointment | null}>({isOpen: false, appt: null});
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -221,6 +222,15 @@ export function Agendamentos() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
+                          {(canEdit || currentUserRole === 'doctor') && (
+                            <button
+                              onClick={() => setDocModal({ isOpen: true, appt: a })}
+                              className="text-gray-400 hover:text-blue-600 transition"
+                              title="Gerar Documento Médico"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          )}
                           {canEdit && a.status === 'Agendado' && (
                             <button 
                               onClick={() => requestCancel(a)}
@@ -359,13 +369,31 @@ export function Agendamentos() {
               </select>
             </div>
 
-            {canEdit && editingAppt?.id && (
+            {(canEdit || currentUserRole === 'doctor') && editingAppt?.id && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select name="status" defaultValue={editingAppt.status} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                  <option value="Agendado">Agendado</option>
-                  <option value="Concluído">Concluído</option>
-                  <option value="Cancelado">Cancelado</option>
+                  {canEdit && (
+                    <>
+                      <option value="Agendado">Agendado</option>
+                      <option value="Confirmado">Confirmado</option>
+                      <option value="Aguardando Atendimento">Aguardando Atendimento</option>
+                      <option value="Cancelado">Cancelado</option>
+                      <option value="Faltou">Faltou</option>
+                    </>
+                  )}
+                  {currentUserRole === 'doctor' && (
+                    <>
+                      <option value="Em Andamento">Em Andamento</option>
+                      <option value="Concluído">Concluído</option>
+                    </>
+                  )}
+                  {currentUserRole === 'admin' && (
+                    <>
+                      <option value="Em Andamento">Em Andamento</option>
+                      <option value="Concluído">Concluído</option>
+                    </>
+                  )}
                 </select>
               </div>
             )}
@@ -382,15 +410,22 @@ export function Agendamentos() {
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
-              <textarea name="notes" defaultValue={editingAppt?.notes} rows={3} disabled={!canEdit && !['doctor','nurse'].includes(currentUserRole)} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              <textarea name="notes" defaultValue={editingAppt?.notes} rows={3} disabled={!canEdit && currentUserRole !== 'doctor'} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
             </div>
+
+            {(canEdit || currentUserRole === 'doctor') && editingAppt?.id && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">CID-10 (Opcional)</label>
+                <input type="text" name="cid10" defaultValue={editingAppt?.cid10} placeholder="Ex: J01.9, I10" disabled={currentUserRole !== 'doctor' && currentUserRole !== 'admin'} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              </div>
+            )}
           </div>
           
           <div className="pt-4 flex justify-end gap-3">
              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
-              {canEdit || ['doctor','nurse'].includes(currentUserRole) ? 'Cancelar' : 'Fechar'}
+              {canEdit || currentUserRole === 'doctor' ? 'Cancelar' : 'Fechar'}
              </button>
-             {(canEdit || ['doctor','nurse'].includes(currentUserRole)) && (
+             {(canEdit || currentUserRole === 'doctor') && (
                <button 
                  type="submit" 
                  disabled={!!conflictError}
@@ -429,6 +464,88 @@ export function Agendamentos() {
         confirmText="Confirmar Cancelamento"
         confirmDisabled={!cancelReason.trim()}
       />
+
+      <Modal
+        isOpen={docModal.isOpen}
+        onClose={() => setDocModal({isOpen: false, appt: null})}
+        title="Emitir Documento Médico"
+      >
+        <div className="space-y-6">
+           <p className="text-sm text-gray-600">Selecione o tipo de documento que deseja emitir para o paciente.</p>
+           
+           <div className="grid grid-cols-1 gap-3">
+             <button 
+               onClick={() => {
+                 alert('Imprimindo Comprovante de Agendamento...');
+                 setDocModal({isOpen: false, appt: null});
+               }}
+               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
+             >
+               <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 group-hover:bg-slate-200">
+                 <FileText className="w-5 h-5" />
+               </div>
+               <div>
+                 <h4 className="font-bold text-gray-800">Comprovante de Agendamento</h4>
+                 <p className="text-xs text-gray-500 mt-1">Imprime comprovante para o paciente e senha (Uso da Recepção).</p>
+               </div>
+             </button>
+
+             <button 
+               onClick={() => {
+                 alert('Imprimindo Atestado Médico...');
+                 setDocModal({isOpen: false, appt: null});
+               }}
+               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
+             >
+               <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-200">
+                 <FileText className="w-5 h-5" />
+               </div>
+               <div>
+                 <h4 className="font-bold text-gray-800">Atestado Médico</h4>
+                 <p className="text-xs text-gray-500 mt-1">Gera atestado de comparecimento ou repouso com CID-10.</p>
+               </div>
+             </button>
+
+             <button 
+               onClick={() => {
+                 alert('Imprimindo Receituário...');
+                 setDocModal({isOpen: false, appt: null});
+               }}
+               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
+             >
+               <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-200">
+                 <FileText className="w-5 h-5" />
+               </div>
+               <div>
+                 <h4 className="font-bold text-gray-800">Receituário</h4>
+                 <p className="text-xs text-gray-500 mt-1">Prescrição de medicamentos (Gera solicitação na Farmácia se interno).</p>
+               </div>
+             </button>
+
+             <button 
+               onClick={() => {
+                 alert('Imprimindo Encaminhamento...');
+                 setDocModal({isOpen: false, appt: null});
+               }}
+               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
+             >
+               <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center shrink-0 group-hover:bg-purple-200">
+                 <FileText className="w-5 h-5" />
+               </div>
+               <div>
+                 <h4 className="font-bold text-gray-800">Encaminhamento</h4>
+                 <p className="text-xs text-gray-500 mt-1">Solicitação de exames ou encaminhamento para especialista.</p>
+               </div>
+             </button>
+           </div>
+
+           <div className="pt-4 flex justify-end">
+             <button onClick={() => setDocModal({isOpen: false, appt: null})} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
+               Fechar
+             </button>
+           </div>
+        </div>
+      </Modal>
     </div>
   );
 }

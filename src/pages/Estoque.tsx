@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Search, Plus, Edit2, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Edit2, AlertTriangle, MinusCircle } from 'lucide-react';
 import { InventoryItem } from '../types';
 import { Modal } from '../components/ui/Modal';
 
@@ -9,6 +9,7 @@ export function Estoque() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [withdrawModal, setWithdrawModal] = useState<{isOpen: boolean; item: InventoryItem | null}>({isOpen: false, item: null});
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'pharmacy';
 
@@ -109,13 +110,24 @@ export function Estoque() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => { setEditingItem(i); setIsModalOpen(true); }}
-                          className="text-primary-600 hover:text-primary-900 transition"
-                          title={canEdit ? "Editar" : "Visualizar"}
-                        >
-                          <Edit2 className="w-4 h-4 inline" />
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          {canEdit && (
+                            <button 
+                              onClick={() => setWithdrawModal({isOpen: true, item: i})}
+                              className="text-amber-600 hover:text-amber-700 transition"
+                              title="Registrar Saída (Retirada)"
+                            >
+                              <MinusCircle className="w-4 h-4 inline" />
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => { setEditingItem(i); setIsModalOpen(true); }}
+                            className="text-primary-600 hover:text-primary-900 transition"
+                            title={canEdit ? "Editar Item" : "Visualizar"}
+                          >
+                            <Edit2 className="w-4 h-4 inline" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -160,7 +172,7 @@ export function Estoque() {
               <input required type="number" min="0" name="minQuantity" defaultValue={editingItem?.minQuantity} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
             </div>
 
-            {canEdit && (
+            {currentUserRole === 'admin' && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select name="status" defaultValue={editingItem?.status || 'active'} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
@@ -179,6 +191,59 @@ export function Estoque() {
                <button type="submit" className="px-4 py-2 text-white bg-primary-600 hover:bg-primary-700 rounded-lg font-medium transition">Salvar Item</button>
              )}
           </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={withdrawModal.isOpen}
+        onClose={() => setWithdrawModal({isOpen: false, item: null})}
+        title="Registrar Saída (Retirada)"
+      >
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          const fd = new FormData(e.currentTarget);
+          const qtd = parseInt(fd.get('withdrawAmount') as string, 10);
+          if (withdrawModal.item && qtd > 0 && qtd <= withdrawModal.item.quantity) {
+             updateInventoryItem({
+               ...withdrawModal.item,
+               quantity: withdrawModal.item.quantity - qtd
+             });
+             setWithdrawModal({isOpen: false, item: null});
+          } else {
+             alert('Quantidade inválida.');
+          }
+        }} className="space-y-4">
+           {withdrawModal.item && (
+             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+               <p className="font-semibold text-gray-800">{withdrawModal.item.name}</p>
+               <p className="text-sm text-gray-500">Lote: {withdrawModal.item.batch} • Em estoque: {withdrawModal.item.quantity}</p>
+             </div>
+           )}
+
+           <div>
+             <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade a retirar</label>
+             <input required type="number" min="1" max={withdrawModal.item?.quantity || 1} name="withdrawAmount" className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500" />
+           </div>
+
+           <div>
+             <label className="block text-sm font-medium text-gray-700 mb-1">Motivo / Vínculo Obrigatório</label>
+             <textarea 
+               required 
+               name="reason" 
+               rows={2} 
+               placeholder="Ex: Receituário Paciente X (ID: 123) ou Descarte..."
+               className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500" 
+             />
+           </div>
+
+           <div className="pt-4 flex justify-end gap-3">
+             <button type="button" onClick={() => setWithdrawModal({isOpen: false, item: null})} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
+              Cancelar
+             </button>
+             <button type="submit" className="px-4 py-2 text-white bg-amber-600 hover:bg-amber-700 rounded-lg font-medium transition">
+              Confirmar Retirada
+             </button>
+           </div>
         </form>
       </Modal>
     </div>

@@ -125,7 +125,6 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
                     className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition bg-white"
                   >
                     <option value="reception">Recepção</option>
-                    <option value="nurse">Enfermagem</option>
                     <option value="doctor">Corpo Clínico (Médico)</option>
                     <option value="pharmacy">Farmácia</option>
                   </select>
@@ -161,6 +160,16 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: Role[] }) {
+  const { currentUserRole } = useAppContext();
+  
+  if (allowedRoles && !allowedRoles.includes(currentUserRole)) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <AppProvider>
@@ -169,11 +178,11 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Layout />}>
               <Route index element={<Dashboard />} />
-              <Route path="pacientes" element={<Pacientes />} />
-              <Route path="medicos" element={<Medicos />} />
-              <Route path="agendamentos" element={<Agendamentos />} />
-              <Route path="estoque" element={<Estoque />} />
-              <Route path="relatorios" element={<Relatorios />} />
+              <Route path="pacientes" element={<ProtectedRoute allowedRoles={['admin', 'reception', 'doctor']}><Pacientes /></ProtectedRoute>} />
+              <Route path="medicos" element={<ProtectedRoute allowedRoles={['admin', 'reception']}><Medicos /></ProtectedRoute>} />
+              <Route path="agendamentos" element={<ProtectedRoute allowedRoles={['admin', 'reception', 'doctor']}><Agendamentos /></ProtectedRoute>} />
+              <Route path="estoque" element={<ProtectedRoute allowedRoles={['admin', 'pharmacy']}><Estoque /></ProtectedRoute>} />
+              <Route path="relatorios" element={<ProtectedRoute allowedRoles={['admin', 'reception']}><Relatorios /></ProtectedRoute>} />
             </Route>
           </Routes>
         </BrowserRouter>

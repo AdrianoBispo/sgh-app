@@ -108,7 +108,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isAdmin() || (isSignedIn() 
           && request.auth.uid == userId 
-          && incoming().role in ['reception', 'doctor', 'nurse', 'pharmacy']);
+          && incoming().role in ['reception', 'doctor', 'pharmacy']);
       allow update: if isAdmin(); // Role changes must be done via Firebase Console by admin or by admin role
       allow delete: if isAdmin();
     }

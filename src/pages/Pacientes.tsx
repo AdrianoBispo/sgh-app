@@ -13,7 +13,7 @@ export function Pacientes() {
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; patient: Patient | null}>({isOpen: false, patient: null});
   const [summaryPatient, setSummaryPatient] = useState<Patient | null>(null);
 
-  const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception' || currentUserRole === 'nurse';
+  const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
 
   const filteredPatients = patients.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

@@ -8,7 +8,6 @@ const roleNames: Record<Role, string> = {
   admin: 'Administrador',
   reception: 'Recepção',
   doctor: 'Médico',
-  nurse: 'Enfermeiro',
   pharmacy: 'Farmacêutico'
 };
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAppContext } from '../../context/AppContext';
 import { 
   LayoutDashboard, 
   Users, 
@@ -10,16 +11,22 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-const navigation = [
-  { name: 'Dashboard', to: '/', icon: LayoutDashboard },
-  { name: 'Pacientes', to: '/pacientes', icon: Users },
-  { name: 'Médicos', to: '/medicos', icon: Stethoscope },
-  { name: 'Agendamentos', to: '/agendamentos', icon: Calendar },
-  { name: 'Estoque', to: '/estoque', icon: Package },
-  { name: 'Relatórios', to: '/relatorios', icon: FileText },
-];
-
 export function Sidebar() {
+  const { currentUserRole } = useAppContext();
+
+  const navigation = [
+    { name: 'Dashboard', to: '/', icon: LayoutDashboard },
+    { name: 'Pacientes', to: '/pacientes', icon: Users, roles: ['admin', 'reception', 'doctor'] },
+    { name: 'Médicos', to: '/medicos', icon: Stethoscope, roles: ['admin', 'reception'] },
+    { name: 'Agendamentos', to: '/agendamentos', icon: Calendar, roles: ['admin', 'reception', 'doctor'] },
+    { name: 'Estoque', to: '/estoque', icon: Package, roles: ['admin', 'pharmacy'] },
+    { name: 'Relatórios', to: '/relatorios', icon: FileText, roles: ['admin', 'reception'] },
+  ].filter(item => {
+    if (currentUserRole === 'pharmacy') return item.name === 'Dashboard' || item.name === 'Estoque';
+    if (!item.roles) return true;
+    return item.roles.includes(currentUserRole);
+  });
+
   return (
     <nav className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-6 gap-8 flex-shrink-0">
       <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center text-white mb-4">

@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'reception' | 'doctor' | 'nurse' | 'pharmacy';
+export type Role = 'admin' | 'reception' | 'doctor' | 'pharmacy';
 
 export interface Patient {
   id: string;
@@ -29,8 +29,9 @@ export interface Appointment {
   type: 'Consulta' | 'Exame';
   date: string;
   time: string;
-  status: 'Agendado' | 'Concluído' | 'Cancelado';
+  status: 'Agendado' | 'Confirmado' | 'Aguardando Atendimento' | 'Em Andamento' | 'Concluído' | 'Cancelado' | 'Faltou';
   notes?: string;
+  cid10?: string; // Informado pelo médico
 }
 
 export interface InventoryItem {
