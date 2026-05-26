@@ -4,6 +4,7 @@ import { Search, Plus, Edit2, Ban, CheckCircle } from 'lucide-react';
 import { Doctor } from '../types';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
+import { validateCRM } from '../lib/validators';
 
 export function Medicos() {
   const { doctors, addDoctor, updateDoctor, currentUserRole, isDataLoaded } = useAppContext();
@@ -11,6 +12,7 @@ export function Medicos() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; doctor: Doctor | null}>({isOpen: false, doctor: null});
+  const [crmError, setCrmError] = useState<string | null>(null);
 
   const canEdit = currentUserRole === 'admin';
 
@@ -23,10 +25,19 @@ export function Medicos() {
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const crm = formData.get('crm') as string;
+    
+    if (!validateCRM(crm)) {
+      setCrmError('O CRM deve estar no formato válido: 12345-SP');
+      return;
+    }
+    
+    setCrmError(null);
+
     const newDoc: Doctor = {
       id: editingDoctor?.id || Math.random().toString(36).substr(2, 9),
       name: formData.get('name') as string,
-      crm: formData.get('crm') as string,
+      crm,
       specialty: formData.get('specialty') as string,
       contact: formData.get('contact') as string,
       availability: formData.get('availability') as string,
@@ -146,7 +157,7 @@ export function Medicos() {
 
       <Modal 
         isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+        onClose={() => { setIsModalOpen(false); setCrmError(null); }} 
         title={editingDoctor ? 'Editar Médico' : 'Novo Médico'}
       >
         <form onSubmit={handleSave} className="space-y-4">
@@ -157,7 +168,8 @@ export function Medicos() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">CRM</label>
-              <input required name="crm" defaultValue={editingDoctor?.crm} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              <input required name="crm" defaultValue={editingDoctor?.crm} disabled={!canEdit} onChange={() => setCrmError(null)} placeholder="Ex: 12345-SP" className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-50 ${crmError ? 'border-red-500' : 'border-gray-300'}`} />
+              {crmError && <p className="text-red-500 text-xs mt-1">{crmError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Especialidade</label>

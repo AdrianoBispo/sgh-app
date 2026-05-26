@@ -4,6 +4,7 @@ import { Search, Plus, Edit2, Ban, CheckCircle, FileText, Calendar as CalendarIc
 import { Patient } from '../types';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
+import { validateCPF } from '../lib/validators';
 
 export function Pacientes() {
   const { patients, addPatient, updatePatient, currentUserRole, isDataLoaded, appointments, doctors } = useAppContext();
@@ -12,6 +13,7 @@ export function Pacientes() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; patient: Patient | null}>({isOpen: false, patient: null});
   const [summaryPatient, setSummaryPatient] = useState<Patient | null>(null);
+  const [cpfError, setCpfError] = useState<string | null>(null);
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -23,10 +25,19 @@ export function Pacientes() {
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const cpf = formData.get('cpf') as string;
+    
+    if (!validateCPF(cpf)) {
+      setCpfError('O CPF deve estar no formato válido: XXX.XXX.XXX-XX');
+      return;
+    }
+    
+    setCpfError(null);
+    
     const newPatient: Patient = {
       id: editingPatient?.id || Math.random().toString(36).substr(2, 9),
       name: formData.get('name') as string,
-      cpf: formData.get('cpf') as string,
+      cpf,
       birthDate: formData.get('birthDate') as string,
       contact: formData.get('contact') as string,
       bloodType: formData.get('bloodType') as string,
@@ -153,7 +164,7 @@ export function Pacientes() {
 
       <Modal 
         isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+        onClose={() => { setIsModalOpen(false); setCpfError(null); }} 
         title={editingPatient ? 'Editar Paciente' : 'Novo Paciente'}
       >
         <form onSubmit={handleSave} className="space-y-4">
@@ -164,7 +175,8 @@ export function Pacientes() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-              <input required name="cpf" defaultValue={editingPatient?.cpf} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <input required name="cpf" defaultValue={editingPatient?.cpf} onChange={() => setCpfError(null)} placeholder="Ex: 111.222.333-44" className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${cpfError ? 'border-red-500' : 'border-gray-300'}`} />
+              {cpfError && <p className="text-red-500 text-xs mt-1">{cpfError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
