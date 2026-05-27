@@ -21,6 +21,7 @@ export function Sidebar() {
     { name: 'Agendamentos', to: '/agendamentos', icon: Calendar, roles: ['admin', 'reception', 'doctor'] },
     { name: 'Estoque', to: '/estoque', icon: Package, roles: ['admin', 'pharmacy'] },
     { name: 'Relatórios', to: '/relatorios', icon: FileText, roles: ['admin', 'reception'] },
+    { name: 'Usuários', to: '/usuarios', icon: Users, roles: ['admin'] },
   ].filter(item => {
     if (currentUserRole === 'pharmacy') return item.name === 'Dashboard' || item.name === 'Estoque';
     if (!item.roles) return true;

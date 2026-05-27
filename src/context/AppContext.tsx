@@ -19,6 +19,9 @@ interface AppContextData {
   reportLogs: ReportLog[];
   auditLogs: AuditLog[];
   
+  systemUsers: any[];
+  addSystemUser: (u: any) => Promise<void>;
+  
   // Basic CRUD for MVP
   addPatient: (p: Patient) => void;
   updatePatient: (p: Patient) => void;
@@ -84,6 +87,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const [systemUsers, setSystemUsers] = useState<any[]>([]);
+
   useEffect(() => {
     if (!user) {
       setIsDataLoaded(false);
@@ -93,7 +98,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let loadedCount = 0;
     const checkLoaded = () => {
       loadedCount++;
-      if (loadedCount === 6) {
+      if (loadedCount === 6) { // still 6 because systemUsers is separate
         setIsDataLoaded(true);
       }
     };
@@ -134,6 +139,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkLoaded();
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'reportLogs'));
 
+    let unsubUsers = () => {};
+    if (currentUserRole === 'admin') {
+      unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        const data: any[] = [];
+        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
+        setSystemUsers(data);
+      }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
+    }
+
     let unsubAudit = () => {};
     if (currentUserRole === 'admin') {
       unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
@@ -159,6 +173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubInventory();
       unsubReports();
       unsubAudit();
+      unsubUsers();
     };
   }, [user]);
 
@@ -256,10 +271,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const addSystemUser = async (u: any) => {
+    // This function will be called from a different app instance to avoid logging out the admin
+    // Or we will just use the normal logic in the components. Wait, to persist data in DB `users` collection:
+    const { id, ...data } = u;
+    try {
+      await setDoc(doc(db, 'users', id), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `users/${id}`);
+    }
+  };
+
   return (
     <AppContext.Provider value={{
       currentUserRole, setCurrentUserRole, user, loading, logout, isDataLoaded,
-      patients, doctors, appointments, inventory, reportLogs, auditLogs,
+      patients, doctors, appointments, inventory, reportLogs, auditLogs, systemUsers, addSystemUser,
       addPatient, updatePatient, addDoctor, updateDoctor,
       addAppointment, updateAppointment, addInventoryItem, updateInventoryItem, addReportLog, addAuditLog
     }}>
