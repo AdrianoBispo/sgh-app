@@ -31,8 +31,8 @@ export function Sidebar() {
   return (
     <nav className="group w-20 hover:w-64 transition-all duration-300 ease-in-out bg-white border-r border-gray-200 flex flex-col py-6 gap-6 flex-shrink-0 relative overflow-hidden z-20">
       <div className="flex items-center px-4 w-64 gap-4 mb-2">
-        <div className="w-12 h-12 flex-shrink-0 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-sm">
-          <HeartPulse className="w-7 h-7" />
+        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center text-emerald-600">
+          <HeartPulse className="w-8 h-8" />
         </div>
         <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
           <span className="font-bold text-lg text-gray-900 leading-tight">Serene</span>
