@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useAppContext } from './context/AppContext';
 import { Role } from './types';
 import { Layout } from './components/layout/Layout';
+import { HeartPulse } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Pacientes } from './pages/Pacientes';
 import { Agendamentos } from './pages/Agendamentos';
@@ -48,7 +49,15 @@ const handleSubmit = async (e: React.FormEvent) => {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
           <div>
-            <h1 className="text-3xl font-bold text-center text-gray-900 border-b border-gray-100 pb-4 mb-4">Hospital São Gabriel</h1>
+            <div className="flex items-center justify-center gap-4 border-b border-gray-100 pb-6 mb-6">
+              <div className="flex items-center justify-center text-emerald-600">
+                <HeartPulse className="w-12 h-12" />
+              </div>
+              <div className="flex flex-col items-start">
+                <h1 className="font-bold text-3xl text-gray-900 leading-tight">Serene</h1>
+                <span className="text-sm text-gray-500 font-medium tracking-wide">CLINIC SYSTEM</span>
+              </div>
+            </div>
             <h2 className="text-center text-xl font-semibold text-gray-700">
               Entrar no Sistema
             </h2>

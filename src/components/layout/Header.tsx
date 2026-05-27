@@ -30,8 +30,8 @@ export function Header() {
     }
   }, [isDark]);
 
-  let title = "Hospital São Gabriel";
-  let subtitle = "Gestão Hospitalar Integrada";
+  let title = "Serene";
+  let subtitle = "CLINIC SYSTEM";
 
   if (location.pathname === '/pacientes') {
     subtitle += " • Pacientes";
