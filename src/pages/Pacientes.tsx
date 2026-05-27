@@ -302,14 +302,6 @@ export function Pacientes() {
                     )}
                   </div>
                </div>
-               <div className="absolute top-4 right-4">
-                 <button 
-                   onClick={() => generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors)}
-                   className="flex items-center gap-1 px-3 py-1.5 bg-white border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 transition text-sm font-medium shadow-sm"
-                 >
-                   <Download className="w-4 h-4" /> Exportar Resumo
-                 </button>
-               </div>
             </div>
 
             <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
@@ -374,10 +366,10 @@ export function Pacientes() {
 
             <div className="pt-2 flex justify-end">
               <button 
-                onClick={() => setSummaryPatient(null)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition"
+                onClick={() => generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors)}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition"
               >
-                Fechar Resumo
+                <Download className="w-5 h-5" /> Exportar Resumo
               </button>
             </div>
           </div>
