@@ -10,6 +10,7 @@ export function Relatorios() {
   const [reportType, setReportType] = useState('Atendimentos');
   const [period, setPeriod] = useState('7dias');
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
+  const [selectedReport, setSelectedReport] = useState<ReportLog | null>(null);
 
   const canGenerate = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -144,7 +145,6 @@ export function Relatorios() {
                 <th className="px-6 py-3">Título</th>
                 <th className="px-6 py-3">Parâmetros</th>
                 <th className="px-6 py-3">Responsável</th>
-                <th className="px-6 py-3 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
@@ -155,12 +155,11 @@ export function Relatorios() {
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-48"></div></td>
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
                   </tr>
                 ))
               ) : reportLogs.length > 0 ? (
                 [...reportLogs].reverse().map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50">
+                  <tr key={log.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedReport(log)}>
                     <td className="px-6 py-4">{new Date(log.generatedAt).toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4 font-medium flex items-center">
                       <FileText className="w-4 h-4 mr-2 text-gray-400" />
@@ -168,24 +167,61 @@ export function Relatorios() {
                     </td>
                     <td className="px-6 py-4 text-gray-500">{log.parameters}</td>
                     <td className="px-6 py-4">{log.generatedBy}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => exportToCSV(log)}
-                        className="text-primary-600 hover:text-primary-900 transition flex items-center justify-end w-full"
-                      >
-                        <Download className="w-4 h-4 mr-1" />
-                        Baixar
-                      </button>
-                    </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Nenhum relatório foi gerado ainda.</td></tr>
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">Nenhum relatório foi gerado ainda.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+        <Modal 
+          isOpen={!!selectedReport}
+          onClose={() => setSelectedReport(null)}
+          title="Detalhes do Relatório"
+          className="max-w-2xl"
+        >
+          {selectedReport && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 mb-6 p-4 bg-gray-50 rounded-xl">
+                <FileText className="w-8 h-8 text-primary-600" />
+                <div>
+                  <h3 className="font-semibold text-gray-900">{selectedReport.title}</h3>
+                  <p className="text-sm text-gray-500">{selectedReport.type}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-500 font-medium">Data de Geração</p>
+                  <p className="text-gray-900">{new Date(selectedReport.generatedAt).toLocaleString('pt-BR')}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500 font-medium">Responsável</p>
+                  <p className="text-gray-900">{selectedReport.generatedBy}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-gray-500 font-medium">Parâmetros Utilizados</p>
+                  <p className="text-gray-900 bg-gray-50 p-2 text-xs rounded border border-gray-200 mt-1">{selectedReport.parameters}</p>
+                </div>
+              </div>
+              
+              <div className="pt-6 flex justify-end">
+                <button 
+                  onClick={() => {
+                    exportToCSV(selectedReport);
+                  }}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium transition"
+                >
+                  <Download className="w-5 h-5" />
+                  Baixar Relatório (CSV)
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
       </>
       ) : (
         <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">

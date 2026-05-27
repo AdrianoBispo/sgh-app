@@ -18,6 +18,7 @@ export function Pacientes() {
   const [summaryPatient, setSummaryPatient] = useState<Patient | null>(null);
   const [docMenuOpen, setDocMenuOpen] = useState<string | null>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
+  const [activeSummaryTab, setActiveSummaryTab] = useState<'dados' | 'historico'>('dados');
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -172,7 +173,6 @@ export function Pacientes() {
                 <th className="px-6 py-3">CPF</th>
                 <th className="px-6 py-3">Contato</th>
                 <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
@@ -183,20 +183,13 @@ export function Pacientes() {
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
                     <td className="px-6 py-4"><div className="h-6 bg-gray-200 rounded-full w-16"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-8"></div></td>
                   </tr>
                 ))
               ) : filteredPatients.length > 0 ? (
                 filteredPatients.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <button 
-                        onClick={() => setSummaryPatient(p)}
-                        className="font-medium text-primary-600 hover:text-primary-800 hover:underline text-left"
-                        title="Ver Resumo do Paciente"
-                      >
-                        {p.name}
-                      </button>
+                  <tr key={p.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSummaryPatient(p)}>
+                    <td className="px-6 py-4 font-medium text-gray-900">
+                      {p.name}
                     </td>
                     <td className="px-6 py-4">{p.cpf}</td>
                     <td className="px-6 py-4">{p.contact}</td>
@@ -206,32 +199,10 @@ export function Pacientes() {
                         {p.status === 'active' ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        {canEdit && (
-                          <button 
-                            onClick={() => { setEditingPatient(p); setIsModalOpen(true); }}
-                            className="text-primary-600 hover:text-primary-900 transition"
-                            title="Editar"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
-                        {canEdit && currentUserRole === 'admin' && (
-                          <button 
-                            onClick={() => requestToggleStatus(p)}
-                            className={`transition ${p.status === 'active' ? 'text-gray-400 hover:text-rose-600' : 'text-gray-400 hover:text-emerald-600'}`}
-                            title={p.status === 'active' ? 'Desativar' : 'Ativar'}
-                          >
-                            {p.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                          </button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Nenhum paciente encontrado.</td></tr>
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">Nenhum paciente encontrado.</td></tr>
               )}
             </tbody>
           </table>
@@ -311,44 +282,88 @@ export function Pacientes() {
 
       <Modal
         isOpen={!!summaryPatient}
-        onClose={() => setSummaryPatient(null)}
+        onClose={() => { setSummaryPatient(null); setActiveSummaryTab('dados'); }}
         title="Resumo do Paciente"
+        className="max-w-2xl"
       >
         {summaryPatient && (
            <div className="space-y-6">
-            <div className="bg-primary-50 rounded-xl p-4 flex gap-4 relative">
-               <div className="w-12 h-12 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center shrink-0">
-                 <User className="w-6 h-6" />
-               </div>
-               <div className="flex-1">
-                  <h3 className="font-bold text-lg text-gray-900">{summaryPatient.name}</h3>
-                  <p className="text-sm text-gray-600">CPF: {summaryPatient.cpf} | Nasc: {new Date(summaryPatient.birthDate).toLocaleDateString('pt-BR')}</p>
-                  <p className="text-sm text-gray-600">Contato: {summaryPatient.contact}</p>
-                  <div className="mt-2 flex gap-2">
-                    {summaryPatient.bloodType && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full border border-red-200">
-                        Sangue: {summaryPatient.bloodType}
-                      </span>
+            <div className="flex space-x-2 border-b border-gray-200">
+              <button
+                onClick={() => setActiveSummaryTab('dados')}
+                className={`py-2 px-4 text-sm font-medium border-b-2 transition ${activeSummaryTab === 'dados' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              >
+                Dados do Paciente
+              </button>
+              <button
+                onClick={() => setActiveSummaryTab('historico')}
+                className={`py-2 px-4 text-sm font-medium border-b-2 transition ${activeSummaryTab === 'historico' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              >
+                Histórico
+              </button>
+            </div>
+
+            {activeSummaryTab === 'dados' && (
+              <div className="space-y-6">
+                <div className="bg-primary-50 rounded-xl p-4 flex gap-4 relative">
+                   <div className="w-12 h-12 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center shrink-0">
+                     <User className="w-6 h-6" />
+                   </div>
+                   <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-900">{summaryPatient.name}</h3>
+                      <p className="text-sm text-gray-600">CPF: {summaryPatient.cpf} | Nasc: {new Date(summaryPatient.birthDate).toLocaleDateString('pt-BR')}</p>
+                      <p className="text-sm text-gray-600">Contato: {summaryPatient.contact}</p>
+                      <div className="mt-2 flex gap-2">
+                        {summaryPatient.bloodType && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full border border-red-200">
+                            Sangue: {summaryPatient.bloodType}
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border ${summaryPatient.status === 'active' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                          {summaryPatient.status === 'active' ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </div>
+                   </div>
+                </div>
+
+                <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
+                  <h4 className="text-blue-800 font-semibold mb-2 flex items-center">
+                    <FileText className="w-4 h-4 mr-1" />
+                    Descrição / Observações Clínicas
+                  </h4>
+                  <p className="text-blue-900 text-sm whitespace-pre-wrap">
+                    {summaryPatient.description || 'Nenhuma descrição registrada.'}
+                  </p>
+                </div>
+                
+                {canEdit && (
+                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                    {currentUserRole === 'admin' && (
+                      <button 
+                        onClick={() => { requestToggleStatus(summaryPatient); setSummaryPatient(null); }}
+                        className={`flex items-center gap-2 px-4 py-2 border rounded-lg font-medium transition ${summaryPatient.status === 'active' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
+                      >
+                        {summaryPatient.status === 'active' ? <><Ban className="w-4 h-4" /> Desativar</> : <><CheckCircle className="w-4 h-4" /> Ativar</>}
+                      </button>
                     )}
+                    <button 
+                      onClick={() => { setEditingPatient(summaryPatient); setIsModalOpen(true); setSummaryPatient(null); }}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      Editar Dados
+                    </button>
                   </div>
-               </div>
-            </div>
+                )}
+              </div>
+            )}
 
-            <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
-              <h4 className="text-blue-800 font-semibold mb-2 flex items-center">
-                <FileText className="w-4 h-4 mr-1" />
-                Descrição / Observações Clínicas
-              </h4>
-              <p className="text-blue-900 text-sm whitespace-pre-wrap">
-                {summaryPatient.description || 'Nenhuma descrição registrada.'}
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-bold text-gray-800 mb-3 flex items-center border-b pb-2">
-                <CalendarIcon className="w-4 h-4 mr-2" />
-                Histórico de Consultas e Exames
-              </h4>
+            {activeSummaryTab === 'historico' && (
+              <div>
+                <h4 className="font-bold text-gray-800 mb-3 flex items-center border-b pb-2">
+                  <CalendarIcon className="w-4 h-4 mr-2" />
+                  Consultas e Exames Anteriores
+                </h4>
               <div className="max-h-48 overflow-y-auto space-y-3 pr-2">
                 { appointments.filter(a => a.patientId === summaryPatient.id).length > 0 ? (
                   appointments
@@ -392,9 +407,16 @@ export function Pacientes() {
                   <p className="text-sm text-gray-500 text-center py-4">Nenhum agendamento encontrado para este paciente.</p>
                 )}
               </div>
-            </div>
+             </div>
+            )}
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex justify-end gap-2">
+              <button 
+                onClick={() => { setSummaryPatient(null); setActiveSummaryTab('dados'); }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition"
+              >
+                Fechar
+              </button>
               <button 
                 onClick={() => generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors)}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition"
@@ -402,7 +424,7 @@ export function Pacientes() {
                 <Download className="w-5 h-5" /> Exportar Resumo
               </button>
             </div>
-          </div>
+           </div>
         )}
       </Modal>
     </div>

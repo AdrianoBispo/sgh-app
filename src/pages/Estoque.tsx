@@ -12,6 +12,7 @@ export function Estoque() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [withdrawModal, setWithdrawModal] = useState<{isOpen: boolean; item: InventoryItem | null}>({isOpen: false, item: null});
+  const [activeTab, setActiveTab] = useState<'dados' | 'historico'>('dados');
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'pharmacy';
 
@@ -169,7 +170,6 @@ export function Estoque() {
                 <th className="px-6 py-3">Validade</th>
                 <th className="px-6 py-3">Quantidade</th>
                 <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
@@ -181,14 +181,13 @@ export function Estoque() {
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
                     <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
                     <td className="px-6 py-4"><div className="h-6 bg-gray-200 rounded-full w-16"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-8 ml-auto"></div></td>
                   </tr>
                 ))
               ) : filteredItems.length > 0 ? (
                 filteredItems.map(i => {
                   const isLow = i.quantity <= i.minQuantity;
                   return (
-                    <tr key={i.id} className="hover:bg-gray-50">
+                    <tr key={i.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setEditingItem(i); setIsModalOpen(true); setActiveTab('dados'); }}>
                       <td className="px-6 py-4 font-medium flex items-center gap-2">
                          {i.name}
                          {isLow && <AlertTriangle className="w-4 h-4 text-amber-500" title="Estoque Mínimo Atingido" />}
@@ -204,31 +203,11 @@ export function Estoque() {
                           {i.status === 'active' ? 'Ativo' : 'Inativo'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          {canEdit && (
-                            <button 
-                              onClick={() => setWithdrawModal({isOpen: true, item: i})}
-                              className="text-amber-600 hover:text-amber-700 transition"
-                              title="Registrar Saída (Retirada)"
-                            >
-                              <MinusCircle className="w-4 h-4 inline" />
-                            </button>
-                          )}
-                          <button 
-                            onClick={() => { setEditingItem(i); setIsModalOpen(true); }}
-                            className="text-primary-600 hover:text-primary-900 transition"
-                            title={canEdit ? "Editar Item" : "Visualizar"}
-                          >
-                            <Edit2 className="w-4 h-4 inline" />
-                          </button>
-                        </div>
-                      </td>
                     </tr>
                   )
                 })
               ) : (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum item encontrado no estoque.</td></tr>
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Nenhum item encontrado no estoque.</td></tr>
               )}
             </tbody>
           </table>
@@ -237,78 +216,121 @@ export function Estoque() {
 
       <Modal 
         isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+        onClose={() => { setIsModalOpen(false); setActiveTab('dados'); }} 
         title={editingItem ? 'Gerenciar Item' : 'Novo Item no Estoque'}
+        className="max-w-2xl"
       >
-        <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto</label>
-              <input required name="name" defaultValue={editingItem?.name} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Lote</label>
-              <input required name="batch" defaultValue={editingItem?.batch} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
-            </div>
+        <div className="flex space-x-2 border-b border-gray-200 mb-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('dados')}
+            className={`py-2 px-4 text-sm font-medium border-b-2 transition ${activeTab === 'dados' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            Dados do Item
+          </button>
+          {editingItem && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('historico')}
+              className={`py-2 px-4 text-sm font-medium border-b-2 transition ${activeTab === 'historico' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              Histórico
+            </button>
+          )}
+        </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Data de Validade</label>
-              <input required type="date" name="expiryDate" defaultValue={editingItem?.expiryDate} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Atual</label>
-              <input required type="number" min="0" name="quantity" defaultValue={editingItem?.quantity} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Mínima (Alerta)</label>
-              <input required type="number" min="0" name="minQuantity" defaultValue={editingItem?.minQuantity} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
-            </div>
-
-            {currentUserRole === 'admin' && (
+        {activeTab === 'dados' ? (
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select name="status" defaultValue={editingItem?.status || 'active'} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                  <option value="active">Ativo</option>
-                  <option value="inactive">Inativo (Descartado/Fora de uso)</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto</label>
+                <input required name="name" defaultValue={editingItem?.name} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
               </div>
-            )}
-          </div>
-          
-          <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 pb-2">
-             <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
-              {canEdit ? 'Cancelar' : 'Fechar'}
-             </button>
-             {canEdit && (
-               <button type="submit" className="px-4 py-2 text-white bg-primary-600 hover:bg-primary-700 rounded-lg font-medium transition">Salvar Item</button>
-             )}
-          </div>
-        </form>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Lote</label>
+                <input required name="batch" defaultValue={editingItem?.batch} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              </div>
 
-        {editingItem && (
-          <div className="mt-6 border-t border-gray-200 pt-4">
-            <h4 className="font-semibold text-gray-800 mb-3">Histórico de Movimentações</h4>
-            <div className="max-h-60 overflow-y-auto pr-2 space-y-3">
-              {auditLogs.filter(log => log.entityId === editingItem.id).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).length > 0 ? (
-                auditLogs.filter(log => log.entityId === editingItem.id)
-                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                  .map(log => (
-                    <div key={log.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-semibold text-gray-900">{log.action}</span>
-                        <span className="text-xs text-gray-500">{new Date(log.timestamp).toLocaleString('pt-BR')}</span>
-                      </div>
-                      <p className="text-gray-700">{log.details}</p>
-                    </div>
-                  ))
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">Nenhuma movimentação registrada.</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data de Validade</label>
+                <input required type="date" name="expiryDate" defaultValue={editingItem?.expiryDate} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Atual</label>
+                <input required type="number" min="0" name="quantity" defaultValue={editingItem?.quantity} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Mínima (Alerta)</label>
+                <input required type="number" min="0" name="minQuantity" defaultValue={editingItem?.minQuantity} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              </div>
+
+              {currentUserRole === 'admin' && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <select name="status" defaultValue={editingItem?.status || 'active'} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="active">Ativo</option>
+                    <option value="inactive">Inativo (Descartado/Fora de uso)</option>
+                  </select>
+                </div>
               )}
             </div>
-          </div>
+            
+            <div className="pt-4 flex justify-between gap-3 border-t border-gray-100 pb-2">
+               <div>
+                  {canEdit && editingItem && (
+                    <button 
+                      type="button"
+                      onClick={() => setWithdrawModal({isOpen: true, item: editingItem})}
+                      className="px-4 py-2 text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg font-medium transition flex items-center gap-2"
+                    >
+                      <MinusCircle className="w-4 h-4 inline" />
+                      Registrar Nova Saída
+                    </button>
+                  )}
+               </div>
+               <div className="flex gap-2">
+                 <button type="button" onClick={() => { setIsModalOpen(false); setActiveTab('dados'); }} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
+                  {canEdit ? 'Cancelar' : 'Fechar'}
+                 </button>
+                 {canEdit && (
+                   <button type="submit" className="px-4 py-2 text-white bg-primary-600 hover:bg-primary-700 rounded-lg font-medium transition">Salvar Item</button>
+                 )}
+               </div>
+            </div>
+          </form>
+        ) : (
+          editingItem && (
+            <div className="mt-2">
+              <div className="max-h-80 overflow-y-auto pr-2 space-y-3">
+                {auditLogs.filter(log => log.entityId === editingItem.id).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).length > 0 ? (
+                  auditLogs.filter(log => log.entityId === editingItem.id)
+                    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                    .map(log => (
+                      <div key={log.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <span className={`font-semibold ${log.action === 'UPDATE' ? 'text-blue-700' : log.action === 'STOCK_WITHDRAW' ? 'text-amber-700' : 'text-gray-700'}`}>
+                            {log.action === 'STOCK_WITHDRAW' ? 'Saída de Estoque' : 'Atualização'}
+                          </span>
+                          <span className="text-gray-500 text-xs">{new Date(log.timestamp).toLocaleString('pt-BR')}</span>
+                        </div>
+                        <p className="text-gray-700">{log.details}</p>
+                        <p className="text-gray-500 text-xs mt-1">Por: {log.userId}</p>
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-gray-500 text-sm text-center py-4">Nenhum registro encontrado para este item.</p>
+                )}
+              </div>
+              <div className="pt-4 flex justify-end">
+                <button type="button" onClick={() => { setIsModalOpen(false); setActiveTab('dados'); }} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )
         )}
       </Modal>
 
