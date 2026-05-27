@@ -124,6 +124,7 @@ export function Usuarios() {
   };
 
   const [selectedRole, setSelectedRole] = useState('reception');
+  const [activeTab, setActiveTab] = useState<'personal' | 'professional'>('personal');
 
   return (
     <div className="h-full flex flex-col space-y-6">
@@ -226,7 +227,7 @@ export function Usuarios() {
 
       <Modal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingUser(null); }}
+        onClose={() => { setIsModalOpen(false); setEditingUser(null); setActiveTab('personal'); }}
         title={editingUser ? "Editar Usuário" : "Cadastrar Novo Usuário"}
       >
          <form onSubmit={handleSubmit} className="space-y-4">
@@ -235,7 +236,27 @@ export function Usuarios() {
                {error}
              </div>
            )}
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            {selectedRole === 'doctor' && (
+              <div className="flex border-b border-gray-200 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('personal')}
+                  className={`px-4 py-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'personal' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                  Informações Pessoais
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('professional')}
+                  className={`px-4 py-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'professional' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                  Dados Profissionais
+                </button>
+              </div>
+            )}
+           
+           <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${activeTab === 'personal' || selectedRole !== 'doctor' ? 'block' : 'hidden'}`}>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
                 <input required name="name" defaultValue={editingUser?.name} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
@@ -263,7 +284,7 @@ export function Usuarios() {
                 <select 
                   name="role" 
                   value={selectedRole}
-                  onChange={e => setSelectedRole(e.target.value)}
+                  onChange={e => { setSelectedRole(e.target.value); if (e.target.value !== 'doctor') setActiveTab('personal'); }}
                   disabled={!!editingUser}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
                 >
@@ -274,22 +295,6 @@ export function Usuarios() {
                 </select>
               </div>
 
-               {selectedRole === 'doctor' && (
-                 <>
-                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">CRM</label>
-                    <input required name="crm" defaultValue={editingUser?.doctorData?.crm} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Especialidade</label>
-                    <input required name="specialty" defaultValue={editingUser?.doctorData?.specialty} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Disponibilidade</label>
-                    <input name="availability" defaultValue={editingUser?.doctorData?.availability} placeholder="Ex: Segundas e Quartas, 08:00 às 12:00" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                  </div>
-                 </>
-               )}
                {editingUser && (
                  <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Status do Sistema</label>
@@ -300,11 +305,30 @@ export function Usuarios() {
                  </div>
                )}
            </div>
+
+           <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${activeTab === 'professional' && selectedRole === 'doctor' ? 'block' : 'hidden'}`}>
+              {selectedRole === 'doctor' && (
+                <>
+                  <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">CRM</label>
+                   <input required={selectedRole === 'doctor'} name="crm" defaultValue={editingUser?.doctorData?.crm} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Especialidade</label>
+                   <input required={selectedRole === 'doctor'} name="specialty" defaultValue={editingUser?.doctorData?.specialty} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                 </div>
+                 <div className="md:col-span-2">
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Disponibilidade</label>
+                   <input name="availability" defaultValue={editingUser?.doctorData?.availability} placeholder="Ex: Segundas e Quartas, 08:00 às 12:00" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                 </div>
+                </>
+              )}
+           </div>
            
             <div className="pt-4 flex justify-end gap-3">
               <button 
                 type="button" 
-                onClick={() => { setIsModalOpen(false); setEditingUser(null); }}
+                onClick={() => { setIsModalOpen(false); setEditingUser(null); setActiveTab('personal'); }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
               >
                 Cancelar
