@@ -54,7 +54,9 @@ export function Medicos() {
         entityName: newDoc.name,
         details: `Atualizou os dados de ${newDoc.name} (${newDoc.specialty})`,
         userId: user?.uid || currentUserRole || 'unknown',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        beforeData: editingDoctor,
+        afterData: newDoc
       });
     } else {
       addDoctor(newDoc);
@@ -83,7 +85,9 @@ export function Medicos() {
         entityName: d.name,
         details: `Desativou o médico ${d.name}`,
         userId: user?.uid || currentUserRole || 'unknown',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        beforeData: d,
+        afterData: { ...d, status: newStatus }
       });
     }
 

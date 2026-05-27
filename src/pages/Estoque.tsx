@@ -43,7 +43,9 @@ export function Estoque() {
           entityName: newItem.name,
           details: `Desativou o item ${newItem.name} (Lote: ${newItem.batch})`,
           userId: user?.uid || currentUserRole || 'unknown',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          beforeData: editingItem,
+          afterData: newItem
         });
       }
     } else {
@@ -220,10 +222,11 @@ export function Estoque() {
           const qtd = parseInt(fd.get('withdrawAmount') as string, 10);
           const reason = fd.get('reason') as string;
           if (withdrawModal.item && qtd > 0 && qtd <= withdrawModal.item.quantity) {
-             updateInventoryItem({
+             const updatedItem = {
                ...withdrawModal.item,
                quantity: withdrawModal.item.quantity - qtd
-             });
+             };
+             updateInventoryItem(updatedItem);
              
              addAuditLog({
                id: Math.random().toString(36).substr(2, 9),
@@ -233,7 +236,9 @@ export function Estoque() {
                entityName: withdrawModal.item.name,
                details: `Retirada de ${qtd} unidade(s). Motivo: ${reason}`,
                userId: user?.uid || currentUserRole || 'unknown',
-               timestamp: new Date().toISOString()
+               timestamp: new Date().toISOString(),
+               beforeData: withdrawModal.item,
+               afterData: updatedItem
              });
 
              setWithdrawModal({isOpen: false, item: null});

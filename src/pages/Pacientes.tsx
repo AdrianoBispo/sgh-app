@@ -57,7 +57,9 @@ export function Pacientes() {
         entityName: newPatient.name,
         details: `Atualizou os dados de ${newPatient.name}`,
         userId: user?.uid || currentUserRole || 'unknown',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        beforeData: editingPatient,
+        afterData: newPatient
       });
     } else {
       addPatient(newPatient);
@@ -86,7 +88,9 @@ export function Pacientes() {
         entityName: p.name,
         details: `Desativou o paciente ${p.name}`,
         userId: user?.uid || currentUserRole || 'unknown',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        beforeData: p,
+        afterData: { ...p, status: newStatus }
       });
     }
 

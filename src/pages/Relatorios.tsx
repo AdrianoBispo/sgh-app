@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Download, FileText, Filter, List, Activity } from 'lucide-react';
+import { Download, FileText, Filter, List, Activity, Eye } from 'lucide-react';
 import { ReportLog, AuditLog } from '../types';
+import { Modal } from '../components/ui/Modal';
 
 export function Relatorios() {
   const { reportLogs, auditLogs, addReportLog, currentUserRole, patients, doctors, appointments, inventory, isDataLoaded } = useAppContext();
   const [activeTab, setActiveTab] = useState<'reports' | 'audit'>('reports');
   const [reportType, setReportType] = useState('Atendimentos');
   const [period, setPeriod] = useState('7dias');
+  const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
 
   const canGenerate = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -217,12 +219,22 @@ export function Relatorios() {
                   ))
                 ) : auditLogs.length > 0 ? (
                   [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(log => (
-                    <tr key={log.id} className="hover:bg-gray-50">
+                    <tr 
+                      key={log.id} 
+                      className="hover:bg-gray-50 cursor-pointer transition"
+                      onClick={() => setSelectedAuditLog(log)}
+                      title="Ver detalhes da alteração"
+                    >
                       <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
                       <td className="px-6 py-4 font-medium"><span className="px-2.5 py-1 bg-gray-100 rounded-lg text-xs font-semibold">{log.action}</span></td>
                       <td className="px-6 py-4">{log.entityType}</td>
                       <td className="px-6 py-4">{log.entityName}</td>
-                      <td className="px-6 py-4 text-gray-500 whitespace-normal min-w-[200px]">{log.details}</td>
+                      <td className="px-6 py-4 text-gray-500 whitespace-normal min-w-[200px]">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate max-w-[200px] inline-block">{log.details}</span>
+                          <Eye className="w-4 h-4 text-primary-500 shrink-0 opacity-50" />
+                        </div>
+                      </td>
                       <td className="px-6 py-4 text-sm font-mono text-gray-400">{log.userId}</td>
                     </tr>
                   ))
@@ -234,6 +246,76 @@ export function Relatorios() {
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={!!selectedAuditLog}
+        onClose={() => setSelectedAuditLog(null)}
+        title="Detalhes da Auditoria"
+      >
+        {selectedAuditLog && (
+          <div className="space-y-6">
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <h3 className="font-semibold text-gray-800">{selectedAuditLog.action}</h3>
+                  <p className="text-sm text-gray-500">{selectedAuditLog.entityType}: {selectedAuditLog.entityName}</p>
+                </div>
+                <span className="text-xs font-mono text-gray-400 bg-white border border-gray-100 px-2 py-1 rounded">
+                  {new Date(selectedAuditLog.timestamp).toLocaleString('pt-BR')}
+                </span>
+              </div>
+              <p className="text-sm text-gray-700 mt-2 p-3 bg-white border border-gray-100 rounded-lg">
+                {selectedAuditLog.details}
+              </p>
+            </div>
+
+            {(selectedAuditLog.beforeData || selectedAuditLog.afterData) && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Alterações nos Campos
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border border-red-100 bg-red-50/50 rounded-xl overflow-hidden">
+                    <div className="bg-red-100 px-3 py-2 text-xs font-semibold text-red-800 uppercase">Antes</div>
+                    <div className="p-3">
+                      {selectedAuditLog.beforeData ? (
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
+                          {JSON.stringify(selectedAuditLog.beforeData, null, 2)}
+                        </pre>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">Nenhum dado anterior</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl overflow-hidden">
+                    <div className="bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800 uppercase">Depois</div>
+                    <div className="p-3">
+                      {selectedAuditLog.afterData ? (
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
+                          {JSON.stringify(selectedAuditLog.afterData, null, 2)}
+                        </pre>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">Nenhum dado atualizado</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="pt-2 flex justify-end">
+              <button 
+                onClick={() => setSelectedAuditLog(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
     </div>
   );
 }

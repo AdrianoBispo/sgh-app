@@ -61,4 +61,6 @@ export interface AuditLog {
   details: string;
   userId: string;
   timestamp: string;
+  beforeData?: any;
+  afterData?: any;
 }
