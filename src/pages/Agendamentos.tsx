@@ -113,6 +113,17 @@ export function Agendamentos() {
     setCancelModal({isOpen: false, appt: null});
   };
 
+  const handleDropAppointment = (appt: Appointment, newDate: string, newTime: string) => {
+    if (!canEdit) return;
+    const conflict = appointments.find(a => a.doctorId === appt.doctorId && a.date === newDate && a.time === newTime && a.id !== appt.id && a.status !== 'Cancelado');
+    if (conflict) {
+      const doc = doctors.find(d => d.id === appt.doctorId);
+      alert(`Conflito de Horário: O profissional ${doc?.name || ''} já possui um agendamento para as ${newTime} no dia ${format(parseISO(newDate), 'dd/MM/yyyy')}.`);
+      return;
+    }
+    updateAppointment({ ...appt, date: newDate, time: newTime });
+  };
+
   const statusColors = {
     'Agendado': 'bg-blue-100 text-blue-800',
     'Concluído': 'bg-emerald-100 text-emerald-800',
@@ -297,6 +308,15 @@ export function Agendamentos() {
                              <div 
                                key={dayIso} 
                                onClick={() => handleCellClick(dayIso, hourPrefix)}
+                               onDragOver={(e) => e.preventDefault()}
+                               onDrop={(e) => {
+                                 e.preventDefault();
+                                 const apptId = e.dataTransfer.getData('text/plain');
+                                 if (apptId) {
+                                   const droppedAppt = appointments.find(a => a.id === apptId);
+                                   if (droppedAppt) handleDropAppointment(droppedAppt, dayIso, `${hourPrefix}:00`);
+                                 }
+                               }}
                                className={`p-1.5 min-h-[100px] border-r border-gray-100 last:border-r-0 relative hover:bg-gray-50/50 transition cursor-crosshair group flex flex-col gap-1.5 ${isSameDay(day, new Date()) ? 'bg-primary-50/10' : ''}`}
                              >
                                 {hourAppts.map(appt => {
@@ -305,8 +325,10 @@ export function Agendamentos() {
                                    return (
                                       <div 
                                         key={appt.id} 
+                                        draggable={canEdit}
+                                        onDragStart={(e) => e.dataTransfer.setData('text/plain', appt.id)}
                                         onClick={(e) => { e.stopPropagation(); setEditingAppt(appt); setConflictError(null); setIsModalOpen(true); }}
-                                        className={`mb-1.5 p-1.5 rounded-md text-xs cursor-pointer shadow-sm transition border ${appt.type === 'Consulta' ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 flex-col flex'}`}
+                                        className={`mb-1.5 p-1.5 rounded-md text-xs cursor-pointer shadow-sm transition border ${canEdit ? 'hover:cursor-grab active:cursor-grabbing' : ''} ${appt.type === 'Consulta' ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 flex-col flex'}`}
                                         title={`${appt.time} - ${ptName} (${doc?.name || '-'})`}
                                       >
                                         <div className="font-semibold leading-tight mb-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{appt.time} - {ptName}</div>
