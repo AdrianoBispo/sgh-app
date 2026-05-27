@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Plus, Edit2, Ban, CheckCircle, Search, UserCircle, Key } from 'lucide-react';
 import { Modal } from '../components/ui/Modal';
+import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { Role } from '../types';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
@@ -31,80 +32,87 @@ export function Usuarios() {
     return matchesSearch && matchesStatus && matchesRole;
   });
 
+  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; data: any}>({isOpen: false, data: null});
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
-    setAuthLoading(true);
 
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const name = formData.get('name') as string;
     const role = formData.get('role') as Role;
-
-    // Additional fields
     const cpf = formData.get('cpf') as string;
     const contact = formData.get('contact') as string;
     const specialty = formData.get('specialty') as string;
     const crm = formData.get('crm') as string;
     const availability = formData.get('availability') as string;
     const status = formData.get('status') as string || 'active';
-    
+
+    const data = { email, password, name, role, cpf, contact, specialty, crm, availability, status };
+
+    if (editingUser) {
+      setConfirmModal({ isOpen: true, data });
+    } else {
+      await processSave(data);
+    }
+  };
+
+  const processSave = async (data: any) => {
+    setAuthLoading(true);
     try {
       if (editingUser) {
-         // Update existing user (simplification for MVP without calling admin SDK to update auth email/password)
          await setDoc(doc(db, 'users', editingUser.id), {
-           email: email, // Note: updating email in auth requires re-authentication, so we just update the doc here for now
-           name: name,
-           role: role,
-           cpf,
-           contact,
-           status
+           email: data.email,
+           name: data.name,
+           role: data.role,
+           cpf: data.cpf,
+           contact: data.contact,
+           status: data.status
          }, { merge: true });
 
-         if (role === 'doctor') {
+         if (data.role === 'doctor') {
            await setDoc(doc(db, 'doctors', editingUser.id), {
-             name: name,
-             email: email,
-             contact: contact,
-             crm: crm,
-             specialty: specialty,
-             availability: availability,
-             status: status
+             name: data.name,
+             email: data.email,
+             contact: data.contact,
+             crm: data.crm,
+             specialty: data.specialty,
+             availability: data.availability,
+             status: data.status
            }, { merge: true });
          }
       } else {
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-        await updateProfile(userCredential.user, { displayName: name });
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
+        await updateProfile(userCredential.user, { displayName: data.name });
         
-        // Store user record
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           email: userCredential.user.email,
-          name: name,
-          role: role,
-          cpf,
-          contact,
-          status: status
+          name: data.name,
+          role: data.role,
+          cpf: data.cpf,
+          contact: data.contact,
+          status: data.status
         });
 
-        if (role === 'doctor') {
+        if (data.role === 'doctor') {
           await setDoc(doc(db, 'doctors', userCredential.user.uid), {
-            name: name,
-            email: email,
-            contact: contact,
-            crm: crm,
-            specialty: specialty,
-            availability: availability,
-            status: status
+            name: data.name,
+            email: data.email,
+            contact: data.contact,
+            crm: data.crm,
+            specialty: data.specialty,
+            availability: data.availability,
+            status: data.status
           });
         }
-
-        // Sign out secondary
         await secondaryAuth.signOut();
       }
       
       setIsModalOpen(false);
       setEditingUser(null);
+      setConfirmModal({ isOpen: false, data: null });
     } catch (err: any) {
       if (err.code === 'auth/email-already-in-use') {
         setError('Este e-mail já está cadastrado.');
@@ -344,6 +352,16 @@ export function Usuarios() {
             </div>
          </form>
       </Modal>
+
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({isOpen: false, data: null})}
+        onConfirm={() => processSave(confirmModal.data)}
+        title="Confirmar Alterações"
+        message="Deseja realmente salvar as alterações neste usuário? Perfils sensíveis não devem ser alterados acidentalmente."
+        confirmText="Salvar Alterações"
+        isDestructive={false}
+      />
     </div>
   );
 }
