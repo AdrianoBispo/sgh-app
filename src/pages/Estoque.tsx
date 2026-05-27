@@ -7,16 +7,18 @@ import { Modal } from '../components/ui/Modal';
 export function Estoque() {
   const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, user, isDataLoaded, addAuditLog } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [withdrawModal, setWithdrawModal] = useState<{isOpen: boolean; item: InventoryItem | null}>({isOpen: false, item: null});
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'pharmacy';
 
-  const filteredItems = inventory.filter(i => 
-    i.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    i.batch.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredItems = inventory.filter(i => {
+    const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase()) || i.batch.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || i.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -70,8 +72,8 @@ export function Estoque() {
       </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-        <div className="p-6 border-b border-gray-100">
-          <div className="relative max-w-md">
+        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input 
               type="text"
@@ -81,6 +83,15 @@ export function Estoque() {
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
+          <select 
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+          >
+            <option value="all">Todos os Status</option>
+            <option value="active">Apenas Ativos</option>
+            <option value="inactive">Apenas Inativos</option>
+          </select>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">

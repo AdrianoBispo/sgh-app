@@ -23,10 +23,10 @@ describe('Sidebar component role-based navigation rendering', () => {
 
     expect(screen.getByTitle('Dashboard')).toBeInTheDocument();
     expect(screen.getByTitle('Pacientes')).toBeInTheDocument();
-    expect(screen.getByTitle('Médicos')).toBeInTheDocument();
     expect(screen.getByTitle('Agendamentos')).toBeInTheDocument();
     expect(screen.getByTitle('Estoque')).toBeInTheDocument();
     expect(screen.getByTitle('Relatórios')).toBeInTheDocument();
+    expect(screen.getByTitle('Usuários')).toBeInTheDocument();
   });
 
   it('renders specific links for reception role', () => {
@@ -38,11 +38,11 @@ describe('Sidebar component role-based navigation rendering', () => {
 
     expect(screen.getByTitle('Dashboard')).toBeInTheDocument();
     expect(screen.getByTitle('Pacientes')).toBeInTheDocument();
-    expect(screen.getByTitle('Médicos')).toBeInTheDocument();
     expect(screen.getByTitle('Agendamentos')).toBeInTheDocument();
     expect(screen.getByTitle('Relatórios')).toBeInTheDocument();
     
     // Restricted links
+    expect(screen.queryByTitle('Usuários')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Estoque')).not.toBeInTheDocument();
   });
 
@@ -58,7 +58,7 @@ describe('Sidebar component role-based navigation rendering', () => {
     expect(screen.getByTitle('Agendamentos')).toBeInTheDocument();
     
     // Restricted links
-    expect(screen.queryByTitle('Médicos')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Usuários')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Estoque')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Relatórios')).not.toBeInTheDocument();
   });
@@ -75,7 +75,7 @@ describe('Sidebar component role-based navigation rendering', () => {
     
     // Restricted links
     expect(screen.queryByTitle('Pacientes')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Médicos')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Usuários')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Agendamentos')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Relatórios')).not.toBeInTheDocument();
   });

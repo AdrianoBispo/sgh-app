@@ -17,16 +17,19 @@ const secondaryAuth = getAuth(secondaryApp);
 export function Usuarios() {
   const { systemUsers, user, updateDoctor, addDoctor, doctors } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState('');
   const [editingUser, setEditingUser] = useState<any>(null);
 
-  const filteredUsers = systemUsers.filter(u => 
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.role?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = systemUsers.filter(u => {
+    const matchesSearch = u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || u.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
+    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+    return matchesSearch && matchesStatus && matchesRole;
+  });
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -125,22 +128,44 @@ export function Usuarios() {
   return (
     <div className="h-full flex flex-col space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="relative flex-1 max-w-md w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input 
-            type="text"
-            placeholder="Buscar usuário..."
-            className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto flex-1">
+          <div className="relative flex-1 max-w-md w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input 
+              type="text"
+              placeholder="Buscar usuário..."
+              className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <select 
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+          >
+            <option value="all">Todas as Funções</option>
+            <option value="reception">Recepção</option>
+            <option value="doctor">Médicos</option>
+            <option value="pharmacy">Farmácia</option>
+            <option value="admin">Administração</option>
+          </select>
+          <select 
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+          >
+            <option value="all">Todos os Status</option>
+            <option value="active">Apenas Ativos</option>
+            <option value="inactive">Apenas Inativos</option>
+          </select>
         </div>
         <button 
-          onClick={() => { setIsModalOpen(true); setSelectedRole('reception'); }}
+          onClick={() => { setEditingUser(null); setIsModalOpen(true); setSelectedRole('reception'); }}
           className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition"
         >
-          <Plus className="w-5 h-5" />
-          Novo Usuário
+          <Plus className="w-5 h-5 shrink-0" />
+          <span className="whitespace-nowrap">Novo Usuário</span>
         </button>
       </div>
 
