@@ -368,7 +368,7 @@ export function Agendamentos() {
               <select required name="patientId" defaultValue={editingAppt?.patientId} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
                 <option value="">Selecione...</option>
                 {patients.filter(p => p.status === 'active').map(p => (
-                  <option key={p.id} value={p.id}>{p.name} - CPF: {p.cpf}</option>
+                  <option key={p.id} value={p.id}>{p.cpf} - {p.name}</option>
                 ))}
               </select>
             </div>
