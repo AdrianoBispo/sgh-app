@@ -17,7 +17,6 @@ export function Sidebar() {
   const navigation = [
     { name: 'Dashboard', to: '/', icon: LayoutDashboard },
     { name: 'Pacientes', to: '/pacientes', icon: Users, roles: ['admin', 'reception', 'doctor'] },
-    { name: 'Médicos', to: '/medicos', icon: Stethoscope, roles: ['admin', 'reception'] },
     { name: 'Agendamentos', to: '/agendamentos', icon: Calendar, roles: ['admin', 'reception', 'doctor'] },
     { name: 'Estoque', to: '/estoque', icon: Package, roles: ['admin', 'pharmacy'] },
     { name: 'Relatórios', to: '/relatorios', icon: FileText, roles: ['admin', 'reception'] },

@@ -5,7 +5,6 @@ import { Role } from './types';
 import { Layout } from './components/layout/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Pacientes } from './pages/Pacientes';
-import { Medicos } from './pages/Medicos';
 import { Agendamentos } from './pages/Agendamentos';
 import { Estoque } from './pages/Estoque';
 import { Relatorios } from './pages/Relatorios';
@@ -127,7 +126,6 @@ export default function App() {
             <Route path="/" element={<Layout />}>
               <Route index element={<Dashboard />} />
               <Route path="pacientes" element={<ProtectedRoute allowedRoles={['admin', 'reception', 'doctor']}><Pacientes /></ProtectedRoute>} />
-              <Route path="medicos" element={<ProtectedRoute allowedRoles={['admin', 'reception']}><Medicos /></ProtectedRoute>} />
               <Route path="agendamentos" element={<ProtectedRoute allowedRoles={['admin', 'reception', 'doctor']}><Agendamentos /></ProtectedRoute>} />
               <Route path="estoque" element={<ProtectedRoute allowedRoles={['admin', 'pharmacy']}><Estoque /></ProtectedRoute>} />
               <Route path="relatorios" element={<ProtectedRoute allowedRoles={['admin', 'reception']}><Relatorios /></ProtectedRoute>} />

@@ -15,11 +15,12 @@ const secondaryApp = initializeApp(firebaseConfig as FirebaseOptions, "Secondary
 const secondaryAuth = getAuth(secondaryApp);
 
 export function Usuarios() {
-  const { systemUsers, user, updateDoctor, addDoctor } = useAppContext();
+  const { systemUsers, user, updateDoctor, addDoctor, doctors } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState('');
+  const [editingUser, setEditingUser] = useState<any>(null);
 
   const filteredUsers = systemUsers.filter(u => 
     u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -43,36 +44,64 @@ export function Usuarios() {
     const contact = formData.get('contact') as string;
     const specialty = formData.get('specialty') as string;
     const crm = formData.get('crm') as string;
+    const availability = formData.get('availability') as string;
+    const status = formData.get('status') as string || 'active';
     
     try {
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-      await updateProfile(userCredential.user, { displayName: name });
-      
-      // Store user record
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        email: userCredential.user.email,
-        name: name,
-        role: role,
-        cpf,
-        contact,
-        status: 'active'
-      });
+      if (editingUser) {
+         // Update existing user (simplification for MVP without calling admin SDK to update auth email/password)
+         await setDoc(doc(db, 'users', editingUser.id), {
+           email: email, // Note: updating email in auth requires re-authentication, so we just update the doc here for now
+           name: name,
+           role: role,
+           cpf,
+           contact,
+           status
+         }, { merge: true });
 
-      if (role === 'doctor') {
-        await setDoc(doc(db, 'doctors', userCredential.user.uid), {
+         if (role === 'doctor') {
+           await setDoc(doc(db, 'doctors', editingUser.id), {
+             name: name,
+             email: email,
+             contact: contact,
+             crm: crm,
+             specialty: specialty,
+             availability: availability,
+             status: status
+           }, { merge: true });
+         }
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+        await updateProfile(userCredential.user, { displayName: name });
+        
+        // Store user record
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          email: userCredential.user.email,
           name: name,
-          email: email,
-          contact: contact,
-          crm: crm,
-          specialty: specialty,
-          status: 'active'
+          role: role,
+          cpf,
+          contact,
+          status: status
         });
-      }
 
-      // Sign out secondary
-      await secondaryAuth.signOut();
+        if (role === 'doctor') {
+          await setDoc(doc(db, 'doctors', userCredential.user.uid), {
+            name: name,
+            email: email,
+            contact: contact,
+            crm: crm,
+            specialty: specialty,
+            availability: availability,
+            status: status
+          });
+        }
+
+        // Sign out secondary
+        await secondaryAuth.signOut();
+      }
       
       setIsModalOpen(false);
+      setEditingUser(null);
     } catch (err: any) {
       if (err.code === 'auth/email-already-in-use') {
         setError('Este e-mail já está cadastrado.');
@@ -124,6 +153,7 @@ export function Usuarios() {
                 <th className="px-6 py-3">E-mail</th>
                 <th className="px-6 py-3">Função</th>
                 <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
@@ -141,11 +171,25 @@ export function Usuarios() {
                       {u.status === 'active' ? 'Ativo' : 'Inativo'}
                     </span>
                   </td>
+                  <td className="px-6 py-4">
+                    <button 
+                      onClick={() => {
+                        const doctorData = u.role === 'doctor' ? doctors.find(d => d.id === u.id) : null;
+                        setEditingUser({ ...u, doctorData });
+                        setSelectedRole(u.role);
+                        setIsModalOpen(true);
+                      }}
+                      className="text-primary-600 hover:text-primary-900 transition"
+                      title="Editar Usuário"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {filteredUsers.length === 0 && (
                  <tr>
-                 <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                 <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                    {searchTerm ? 'Nenhum usuário encontrado na busca.' : 'Nenhum usuário cadastrado.'}
                  </td>
                </tr>
@@ -157,8 +201,8 @@ export function Usuarios() {
 
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Cadastrar Novo Usuário"
+        onClose={() => { setIsModalOpen(false); setEditingUser(null); }}
+        title={editingUser ? "Editar Usuário" : "Cadastrar Novo Usuário"}
       >
          <form onSubmit={handleSubmit} className="space-y-4">
            {error && (
@@ -169,23 +213,25 @@ export function Usuarios() {
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                <input required name="name" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                <input required name="name" defaultValue={editingUser?.name} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">E-mail (Login)</label>
-                <input type="email" required name="email" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                <input type="email" required name="email" defaultValue={editingUser?.email} disabled={!!editingUser} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Senha Provisória</label>
-                <input type="password" required name="password" minLength={6} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
+              {!editingUser && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Senha Inicial</label>
+                  <input type="password" required name="password" minLength={6} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                </div>
+              )}
                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-                <input required name="cpf" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                <input required name="cpf" defaultValue={editingUser?.cpf} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
               </div>
                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Contato / Telefone</label>
-                <input required name="contact" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                <input required name="contact" defaultValue={editingUser?.contact} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Função</label>
@@ -193,7 +239,8 @@ export function Usuarios() {
                   name="role" 
                   value={selectedRole}
                   onChange={e => setSelectedRole(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  disabled={!!editingUser}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
                 >
                   <option value="reception">Recepção</option>
                   <option value="doctor">Médico</option>
@@ -206,20 +253,33 @@ export function Usuarios() {
                  <>
                    <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">CRM</label>
-                    <input required name="crm" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                    <input required name="crm" defaultValue={editingUser?.doctorData?.crm} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Especialidade</label>
-                    <input required name="specialty" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                    <input required name="specialty" defaultValue={editingUser?.doctorData?.specialty} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Disponibilidade</label>
+                    <input name="availability" defaultValue={editingUser?.doctorData?.availability} placeholder="Ex: Segundas e Quartas, 08:00 às 12:00" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
                   </div>
                  </>
+               )}
+               {editingUser && (
+                 <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Status do Sistema</label>
+                    <select name="status" defaultValue={editingUser?.status} className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                      <option value="active">Ativo</option>
+                      <option value="inactive">Inativo (Bloqueado)</option>
+                    </select>
+                 </div>
                )}
            </div>
            
             <div className="pt-4 flex justify-end gap-3">
               <button 
                 type="button" 
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => { setIsModalOpen(false); setEditingUser(null); }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
               >
                 Cancelar
