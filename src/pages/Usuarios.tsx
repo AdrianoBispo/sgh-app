@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { Plus, Edit2, Ban, CheckCircle, Search, UserCircle, Key } from 'lucide-react';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
+import { ImportExportButtons } from '../components/ui/ImportExportButtons';
 import { Role } from '../types';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
@@ -124,6 +125,28 @@ export function Usuarios() {
     }
   };
 
+  const handleImport = async (data: any[]) => {
+    let count = 0;
+    for (const row of data) {
+      if (row.email && row.name && row.role) {
+        await processSave({
+          email: row.email,
+          password: row.password || 'senha12345',
+          name: row.name,
+          role: row.role as Role,
+          cpf: row.cpf || '',
+          contact: row.contact || '',
+          specialty: row.specialty || '',
+          crm: row.crm || '',
+          availability: row.availability || '',
+          status: row.status === 'inactive' ? 'inactive' : 'active'
+        });
+        count++;
+      }
+    }
+    if (count > 0) alert(`${count} usuário(s) importado(s) com sucesso! As senhas padrões são 'senha12345' para novos usuários caso não fornecidas.`);
+  };
+
   const roleNames: Record<string, string> = {
     admin: 'Administrador',
     reception: 'Recepção',
@@ -169,13 +192,20 @@ export function Usuarios() {
             <option value="inactive">Apenas Inativos</option>
           </select>
         </div>
-        <button 
-          onClick={() => { setEditingUser(null); setIsModalOpen(true); setSelectedRole('reception'); }}
-          className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition"
-        >
-          <Plus className="w-5 h-5 shrink-0" />
-          <span className="whitespace-nowrap">Novo Usuário</span>
-        </button>
+        <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0 shrink-0">
+          <ImportExportButtons 
+            onImport={handleImport}
+            exportData={systemUsers.map(u => ({ ...u, password: '' }))}
+            exportFileName="usuarios"
+          />
+          <button 
+            onClick={() => { setEditingUser(null); setIsModalOpen(true); setSelectedRole('reception'); }}
+            className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition"
+          >
+            <Plus className="w-5 h-5 shrink-0" />
+            <span className="whitespace-nowrap">Novo Usuário</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">

@@ -4,6 +4,7 @@ import { Plus, Edit2, XCircle, AlertTriangle, Calendar as CalendarIcon, LayoutLi
 import { Appointment } from '../types';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
+import { ImportExportButtons } from '../components/ui/ImportExportButtons';
 import { format, parseISO, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -124,6 +125,27 @@ export function Agendamentos() {
     updateAppointment({ ...appt, date: newDate, time: newTime });
   };
 
+  const handleImport = async (data: any[]) => {
+    let count = 0;
+    for (const row of data) {
+      if (row.patientId && row.doctorId && row.date && row.time) {
+        const newAppt: Appointment = {
+          id: row.id || Math.random().toString(36).substr(2, 9),
+          patientId: row.patientId,
+          doctorId: row.doctorId,
+          type: row.type || 'Consulta',
+          date: row.date,
+          time: row.time,
+          status: row.status || 'Agendado',
+          notes: row.notes || '',
+        };
+        addAppointment(newAppt);
+        count++;
+      }
+    }
+    if (count > 0) alert(`${count} agendamento(s) importado(s) com sucesso! Note que é necessário prover o patientId e doctorId corretos.`);
+  };
+
   const statusColors = {
     'Agendado': 'bg-blue-100 text-blue-800',
     'Concluído': 'bg-emerald-100 text-emerald-800',
@@ -134,13 +156,20 @@ export function Agendamentos() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         {canEdit ? (
-          <button 
-            onClick={() => { setEditingAppt(null); setConflictError(null); setIsModalOpen(true); }}
-            className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Agendamento
-          </button>
+          <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            <ImportExportButtons 
+              onImport={handleImport}
+              exportData={appointments}
+              exportFileName="agendamentos"
+            />
+            <button 
+              onClick={() => { setEditingAppt(null); setConflictError(null); setIsModalOpen(true); }}
+              className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Agendamento
+            </button>
+          </div>
         ) : <div />}
         <div className="flex items-center bg-gray-100 p-1 rounded-xl">
           <button

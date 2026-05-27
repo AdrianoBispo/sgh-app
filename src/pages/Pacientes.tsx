@@ -6,6 +6,7 @@ import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { validateCPF } from '../lib/validators';
 import { generatePatientSummaryPDF, generateDocumentPDF } from '../lib/pdf';
+import { ImportExportButtons } from '../components/ui/ImportExportButtons';
 
 export function Pacientes() {
   const { patients, addPatient, updatePatient, currentUserRole, user, isDataLoaded, appointments, doctors, addAuditLog } = useAppContext();
@@ -99,17 +100,45 @@ export function Pacientes() {
     setConfirmModal({isOpen: false, patient: null});
   };
 
+  const handleImport = async (data: any[]) => {
+    let count = 0;
+    for (const row of data) {
+      if (row.name && row.cpf) {
+        await addPatient({
+          id: row.id || Math.random().toString(36).substr(2, 9),
+          name: String(row.name),
+          cpf: String(row.cpf),
+          birthDate: row.birthDate || new Date().toISOString().split('T')[0],
+          contact: row.contact || '',
+          address: row.address || '',
+          bloodType: row.bloodType || '',
+          description: row.description || '',
+          status: row.status === 'inactive' ? 'inactive' : 'active'
+        });
+        count++;
+      }
+    }
+    if (count > 0) alert(`${count} paciente(s) importado(s) com sucesso!`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         {canEdit && (
-          <button 
-            onClick={() => { setEditingPatient(null); setIsModalOpen(true); }}
-            className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Paciente
-          </button>
+          <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            <ImportExportButtons 
+              onImport={handleImport}
+              exportData={patients}
+              exportFileName="pacientes"
+            />
+            <button 
+              onClick={() => { setEditingPatient(null); setIsModalOpen(true); }}
+              className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Paciente
+            </button>
+          </div>
         )}
       </div>
 

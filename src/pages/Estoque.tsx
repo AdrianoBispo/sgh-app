@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { Search, Plus, Edit2, AlertTriangle, MinusCircle } from 'lucide-react';
 import { InventoryItem } from '../types';
 import { Modal } from '../components/ui/Modal';
+import { ImportExportButtons } from '../components/ui/ImportExportButtons';
 
 export function Estoque() {
   const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, user, isDataLoaded, addAuditLog, auditLogs } = useAppContext();
@@ -96,17 +97,44 @@ export function Estoque() {
     setIsModalOpen(false);
   };
 
+  const handleImport = async (data: any[]) => {
+    let count = 0;
+    for (const row of data) {
+      if (row.name && row.batch) {
+        const newItem: InventoryItem = {
+          id: row.id || Math.random().toString(36).substr(2, 9),
+          name: row.name,
+          batch: row.batch,
+          expiryDate: row.expiryDate || new Date().toISOString().split('T')[0],
+          quantity: parseInt(row.quantity, 10) || 0,
+          minQuantity: parseInt(row.minQuantity, 10) || 0,
+          status: row.status === 'inactive' ? 'inactive' : 'active'
+        };
+        addInventoryItem(newItem);
+        count++;
+      }
+    }
+    if (count > 0) alert(`${count} item(ns) importado(s) com sucesso no estoque!`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         {canEdit && (
-          <button 
-            onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
-            className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Item
-          </button>
+          <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            <ImportExportButtons 
+              onImport={handleImport}
+              exportData={inventory}
+              exportFileName="estoque"
+            />
+            <button 
+              onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
+              className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Item
+            </button>
+          </div>
         )}
       </div>
 
