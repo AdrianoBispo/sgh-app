@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Search, Plus, Edit2, Ban, CheckCircle, FileText, Calendar as CalendarIcon, User, Activity } from 'lucide-react';
+import { Search, Plus, Edit2, Ban, CheckCircle, FileText, Calendar as CalendarIcon, User, Activity, Download, FileOutput } from 'lucide-react';
 import { Patient } from '../types';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { validateCPF } from '../lib/validators';
+import { generatePatientSummaryPDF, generateDocumentPDF } from '../lib/pdf';
 
 export function Pacientes() {
   const { patients, addPatient, updatePatient, currentUserRole, user, isDataLoaded, appointments, doctors, addAuditLog } = useAppContext();
@@ -13,6 +14,7 @@ export function Pacientes() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; patient: Patient | null}>({isOpen: false, patient: null});
   const [summaryPatient, setSummaryPatient] = useState<Patient | null>(null);
+  const [docMenuOpen, setDocMenuOpen] = useState<string | null>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
@@ -261,12 +263,12 @@ export function Pacientes() {
         title="Resumo do Paciente"
       >
         {summaryPatient && (
-          <div className="space-y-6">
-            <div className="bg-primary-50 rounded-xl p-4 flex gap-4">
+           <div className="space-y-6">
+            <div className="bg-primary-50 rounded-xl p-4 flex gap-4 relative">
                <div className="w-12 h-12 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center shrink-0">
                  <User className="w-6 h-6" />
                </div>
-               <div>
+               <div className="flex-1">
                   <h3 className="font-bold text-lg text-gray-900">{summaryPatient.name}</h3>
                   <p className="text-sm text-gray-600">CPF: {summaryPatient.cpf} | Nasc: {new Date(summaryPatient.birthDate).toLocaleDateString('pt-BR')}</p>
                   <p className="text-sm text-gray-600">Contato: {summaryPatient.contact}</p>
@@ -277,6 +279,14 @@ export function Pacientes() {
                       </span>
                     )}
                   </div>
+               </div>
+               <div className="absolute top-4 right-4">
+                 <button 
+                   onClick={() => generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors)}
+                   className="flex items-center gap-1 px-3 py-1.5 bg-white border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 transition text-sm font-medium shadow-sm"
+                 >
+                   <Download className="w-4 h-4" /> Exportar Resumo
+                 </button>
                </div>
             </div>
 
@@ -327,6 +337,21 @@ export function Pacientes() {
                            </div>
                            <p className="text-gray-600"><span className="font-medium">Médico:</span> {doc?.name || 'Desconhecido'} ({a.type})</p>
                            {a.notes && <p className="text-gray-500 mt-1 italic">Obs: {a.notes}</p>}
+                           
+                           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-2">
+                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Comprovante')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                               <FileOutput className="w-3 h-3 mr-1" /> Comprovante
+                             </button>
+                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Atestado')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                               <FileOutput className="w-3 h-3 mr-1" /> Atestado
+                             </button>
+                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Receituário')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                               <FileOutput className="w-3 h-3 mr-1" /> Receituário
+                             </button>
+                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Encaminhamento')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                               <FileOutput className="w-3 h-3 mr-1" /> Guia / Encaminhamento
+                             </button>
+                           </div>
                         </div>
                       )
                     })
