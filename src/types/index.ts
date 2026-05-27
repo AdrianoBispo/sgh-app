@@ -7,8 +7,7 @@ export interface Patient {
   birthDate: string;
   contact: string;
   bloodType?: string;
-  allergies?: string;
-  comorbidities?: string;
+  description?: string;
   status: 'active' | 'inactive';
 }
 

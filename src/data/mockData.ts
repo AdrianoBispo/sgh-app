@@ -1,9 +1,9 @@
 import { Patient, Doctor, Appointment, InventoryItem, ReportLog, AuditLog } from '../types';
 
 export const mockPatients: Patient[] = [
-  { id: '1', name: 'João Silva', cpf: '111.222.333-44', birthDate: '1985-04-12', contact: '(11) 98888-7777', bloodType: 'O+', allergies: 'Amendoim', status: 'active' },
+  { id: '1', name: 'João Silva', cpf: '111.222.333-44', birthDate: '1985-04-12', contact: '(11) 98888-7777', bloodType: 'O+', description: 'Alergias: Amendoim', status: 'active' },
   { id: '2', name: 'Maria Oliveira', cpf: '222.333.444-55', birthDate: '1990-08-25', contact: '(11) 97777-6666', status: 'active' },
-  { id: '3', name: 'Antônio Souza', cpf: '333.444.555-66', birthDate: '1975-11-03', contact: '(11) 96666-5555', comorbidities: 'Hipertensão', status: 'inactive' }
+  { id: '3', name: 'Antônio Souza', cpf: '333.444.555-66', birthDate: '1975-11-03', contact: '(11) 96666-5555', description: 'Comorbidades: Hipertensão', status: 'inactive' }
 ];
 
 export const mockDoctors: Doctor[] = [

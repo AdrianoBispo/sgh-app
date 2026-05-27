@@ -43,8 +43,7 @@ export function Pacientes() {
       birthDate: formData.get('birthDate') as string,
       contact: formData.get('contact') as string,
       bloodType: formData.get('bloodType') as string,
-      allergies: formData.get('allergies') as string,
-      comorbidities: formData.get('comorbidities') as string,
+      description: formData.get('description') as string,
       status: (formData.get('status') as any) || 'active',
     };
 
@@ -164,13 +163,15 @@ export function Pacientes() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <button 
-                          onClick={() => { setEditingPatient(p); setIsModalOpen(true); }}
-                          className="text-primary-600 hover:text-primary-900 transition"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                        {canEdit && (
+                          <button 
+                            onClick={() => { setEditingPatient(p); setIsModalOpen(true); }}
+                            className="text-primary-600 hover:text-primary-900 transition"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
                         {canEdit && currentUserRole === 'admin' && (
                           <button 
                             onClick={() => requestToggleStatus(p)}
@@ -218,7 +219,17 @@ export function Pacientes() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo Sanguíneo</label>
-              <input name="bloodType" defaultValue={editingPatient?.bloodType} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <select name="bloodType" defaultValue={editingPatient?.bloodType || ''} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                <option value="">Selecione...</option>
+                <option value="A+">A+</option>
+                <option value="A-">A-</option>
+                <option value="B+">B+</option>
+                <option value="B-">B-</option>
+                <option value="AB+">AB+</option>
+                <option value="AB-">AB-</option>
+                <option value="O+">O+</option>
+                <option value="O-">O-</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -228,12 +239,8 @@ export function Pacientes() {
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Alergias</label>
-              <textarea name="allergies" defaultValue={editingPatient?.allergies} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Comorbidades</label>
-              <textarea name="comorbidities" defaultValue={editingPatient?.comorbidities} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+              <textarea name="description" defaultValue={editingPatient?.description} rows={3} placeholder="Alergias, Comorbidades e Observações Clínicas" className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
             </div>
           </div>
           <div className="pt-4 flex justify-end gap-3">
@@ -290,25 +297,14 @@ export function Pacientes() {
                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border border-amber-200 bg-amber-50 rounded-xl p-4">
-                <h4 className="text-amber-800 font-semibold mb-2 flex items-center">
-                  <Activity className="w-4 h-4 mr-1" />
-                  Alergias Registradas
-                </h4>
-                <p className="text-amber-900 text-sm whitespace-pre-wrap">
-                  {summaryPatient.allergies || 'Nenhuma alergia registrada.'}
-                </p>
-              </div>
-              <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
-                <h4 className="text-blue-800 font-semibold mb-2 flex items-center">
-                  <FileText className="w-4 h-4 mr-1" />
-                  Comorbidades / Obs.
-                </h4>
-                <p className="text-blue-900 text-sm whitespace-pre-wrap">
-                  {summaryPatient.comorbidities || 'Nenhuma comorbidade registrada.'}
-                </p>
-              </div>
+            <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
+              <h4 className="text-blue-800 font-semibold mb-2 flex items-center">
+                <FileText className="w-4 h-4 mr-1" />
+                Descrição / Observações Clínicas
+              </h4>
+              <p className="text-blue-900 text-sm whitespace-pre-wrap">
+                {summaryPatient.description || 'Nenhuma descrição registrada.'}
+              </p>
             </div>
 
             <div>

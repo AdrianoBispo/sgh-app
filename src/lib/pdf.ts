@@ -22,8 +22,7 @@ export const generatePatientSummaryPDF = (patient: Patient, appointments: Appoin
   doc.text('Informações Clínicas', 14, 78);
   
   doc.setFontSize(10);
-  doc.text(`Alergias: ${patient.allergies || 'Nenhuma registrada'}`, 14, 86);
-  doc.text(`Comorbidades: ${patient.comorbidities || 'Nenhuma registrada'}`, 14, 94);
+  doc.text(`Descrição / Observações: ${patient.description || 'Nenhuma registrada'}`, 14, 86);
 
   doc.setFontSize(14);
   doc.text('Histórico de Consultas e Exames', 14, 110);
