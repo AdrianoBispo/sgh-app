@@ -5,7 +5,7 @@ import { InventoryItem } from '../types';
 import { Modal } from '../components/ui/Modal';
 
 export function Estoque() {
-  const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, user, isDataLoaded, addAuditLog } = useAppContext();
+  const { inventory, addInventoryItem, updateInventoryItem, currentUserRole, user, isDataLoaded, addAuditLog, auditLogs } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,7 +36,22 @@ export function Estoque() {
 
     if (editingItem) {
       updateInventoryItem(newItem);
-      if (editingItem.status === 'active' && newItem.status === 'inactive') {
+      
+      const qtyDiff = newItem.quantity - editingItem.quantity;
+      if (qtyDiff > 0) {
+        addAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          action: 'Entrada de Estoque',
+          entityType: 'Estoque',
+          entityId: newItem.id,
+          entityName: newItem.name,
+          details: `Entrada de ${qtyDiff} unidade(s). (Atualização)`,
+          userId: user?.uid || currentUserRole || 'unknown',
+          timestamp: new Date().toISOString(),
+          beforeData: editingItem,
+          afterData: newItem
+        });
+      } else if (editingItem.status === 'active' && newItem.status === 'inactive') {
         addAuditLog({
           id: Math.random().toString(36).substr(2, 9),
           action: 'Exclusão Lógica (Estoque)',
@@ -49,9 +64,33 @@ export function Estoque() {
           beforeData: editingItem,
           afterData: newItem
         });
+      } else if (qtyDiff === 0 && (editingItem.name !== newItem.name || editingItem.batch !== newItem.batch || editingItem.expiryDate !== newItem.expiryDate)) {
+         addAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          action: 'Atualização de Cadastro',
+          entityType: 'Estoque',
+          entityId: newItem.id,
+          entityName: newItem.name,
+          details: `Atualizou os dados do item.`,
+          userId: user?.uid || currentUserRole || 'unknown',
+          timestamp: new Date().toISOString(),
+          beforeData: editingItem,
+          afterData: newItem
+        });
       }
     } else {
       addInventoryItem(newItem);
+      addAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          action: 'Entrada de Estoque',
+          entityType: 'Estoque',
+          entityId: newItem.id,
+          entityName: newItem.name,
+          details: `Cadastro inicial com ${newItem.quantity} unidade(s).`,
+          userId: user?.uid || currentUserRole || 'unknown',
+          timestamp: new Date().toISOString(),
+          afterData: newItem
+        });
     }
     
     setIsModalOpen(false);
@@ -211,7 +250,7 @@ export function Estoque() {
             )}
           </div>
           
-          <div className="pt-4 flex justify-end gap-3">
+          <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 pb-2">
              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
               {canEdit ? 'Cancelar' : 'Fechar'}
              </button>
@@ -220,6 +259,29 @@ export function Estoque() {
              )}
           </div>
         </form>
+
+        {editingItem && (
+          <div className="mt-6 border-t border-gray-200 pt-4">
+            <h4 className="font-semibold text-gray-800 mb-3">Histórico de Movimentações</h4>
+            <div className="max-h-60 overflow-y-auto pr-2 space-y-3">
+              {auditLogs.filter(log => log.entityId === editingItem.id).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).length > 0 ? (
+                auditLogs.filter(log => log.entityId === editingItem.id)
+                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                  .map(log => (
+                    <div key={log.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-semibold text-gray-900">{log.action}</span>
+                        <span className="text-xs text-gray-500">{new Date(log.timestamp).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <p className="text-gray-700">{log.details}</p>
+                    </div>
+                  ))
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">Nenhuma movimentação registrada.</p>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal
