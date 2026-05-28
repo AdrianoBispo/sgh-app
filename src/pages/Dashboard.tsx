@@ -38,7 +38,7 @@ export function Dashboard() {
     <div className="grid grid-cols-1 md:grid-cols-12 md:grid-rows-6 gap-4 flex-1 h-full">
       
       {/* Stats - Today's Appointments */}
-      <div className="md:col-span-3 md:row-span-2 bg-primary-600 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
+      <div className="md:col-span-4 md:row-span-2 bg-primary-600 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
         <div>
           <p className="text-primary-100 text-sm font-medium">Agendamentos Hoje</p>
           {!isDataLoaded ? (
@@ -53,7 +53,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats - Aguardando Atendimento */}
-      <div className="md:col-span-3 md:row-span-2 bg-amber-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
+      <div className="md:col-span-4 md:row-span-2 bg-amber-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
         <div>
           <p className="text-amber-100 text-sm font-medium">Aguardando Atendimento</p>
           {!isDataLoaded ? (
@@ -68,7 +68,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats - Em Andamento */}
-      <div className="md:col-span-3 md:row-span-2 bg-blue-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
+      <div className="md:col-span-4 md:row-span-2 bg-blue-500 rounded-3xl p-6 text-white shadow-lg flex flex-col justify-between">
         <div>
           <p className="text-blue-100 text-sm font-medium">Em Andamento</p>
           {!isDataLoaded ? (
@@ -82,23 +82,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Stats - Active Patients */}
-      <div className="md:col-span-3 md:row-span-2 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-        <div>
-          <p className="text-gray-500 text-sm font-medium">Pacientes Ativos</p>
-          {!isDataLoaded ? (
-            <div className="h-10 bg-gray-200 rounded w-16 mt-1 animate-pulse"></div>
-          ) : (
-            <h2 className="text-4xl font-bold text-gray-800 mt-1">{activePatients}</h2>
-          )}
-        </div>
-        <div className="mt-4 md:mt-0">
-          <div className="h-1.5 w-full bg-gray-100 rounded-full mb-2">
-            <div className="bg-primary-600 h-1.5 rounded-full" style={{ width: `${capacityPercentage}%` }}></div>
-          </div>
-          <p className="text-xs text-gray-400">{capacityPercentage}% base estimada ativa</p>
-        </div>
-      </div>
+
 
       {/* Volume Chart */}
       <div className="md:col-span-4 md:row-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between min-h-[300px]">

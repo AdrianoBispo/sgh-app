@@ -105,3 +105,13 @@ body {
   
   color-scheme: dark;
 }
+
+/* Esconder barra de rolagem de todos os componentes */
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}

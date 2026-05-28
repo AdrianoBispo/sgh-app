@@ -322,7 +322,7 @@ export function Usuarios() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Função</label>
                 <select 
                   name="role" 
-                  value={selectedRole}
+                  value={selectedRole || ''}
                   onChange={e => { setSelectedRole(e.target.value); if (e.target.value !== 'doctor') setActiveTab('personal'); }}
                   disabled={!!editingUser}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
@@ -337,7 +337,7 @@ export function Usuarios() {
                {editingUser && (
                  <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Status do Sistema</label>
-                    <select name="status" defaultValue={editingUser?.status} className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <select name="status" defaultValue={editingUser?.status || 'active'} className="w-full border border-gray-300 rounded-lg px-3 py-2">
                       <option value="active">Ativo</option>
                       <option value="inactive">Inativo (Bloqueado)</option>
                     </select>

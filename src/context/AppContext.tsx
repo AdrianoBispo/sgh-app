@@ -175,12 +175,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubAudit();
       unsubUsers();
     };
-  }, [user]);
+  }, [user, currentUserRole]);
 
   const addPatient = async (p: Patient) => {
     const { id, ...data } = p;
     try {
-      await setDoc(doc(db, 'patients', id), data);
+      await setDoc(doc(db, 'patients', String(id)), data);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `patients/${id}`);
     }
@@ -190,7 +190,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { id, ...data } = p;
     try {
       // @ts-ignore
-      await updateDoc(doc(db, 'patients', id), data);
+      await updateDoc(doc(db, 'patients', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `patients/${id}`);
     }
@@ -199,7 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addDoctor = async (d: Doctor) => {
     const { id, ...data } = d;
     try {
-      await setDoc(doc(db, 'doctors', id), data);
+      await setDoc(doc(db, 'doctors', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.CREATE, `doctors/${id}`);
     }
@@ -209,7 +209,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { id, ...data } = d;
     try {
       // @ts-ignore
-      await updateDoc(doc(db, 'doctors', id), data);
+      await updateDoc(doc(db, 'doctors', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `doctors/${id}`);
     }
@@ -218,7 +218,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addAppointment = async (a: Appointment) => {
     const { id, ...data } = a;
     try {
-      await setDoc(doc(db, 'appointments', id), data);
+      await setDoc(doc(db, 'appointments', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.CREATE, `appointments/${id}`);
     }
@@ -228,7 +228,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { id, ...data } = a;
     try {
       // @ts-ignore
-      await updateDoc(doc(db, 'appointments', id), data);
+      await updateDoc(doc(db, 'appointments', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`); // Added ignore to bypass deep partial type error
     }
@@ -237,7 +237,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addInventoryItem = async (i: InventoryItem) => {
     const { id, ...data } = i;
     try {
-      await setDoc(doc(db, 'inventory', id), data);
+      await setDoc(doc(db, 'inventory', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.CREATE, `inventory/${id}`);
     }
@@ -247,7 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { id, ...data } = i;
     try {
       // @ts-ignore
-      await updateDoc(doc(db, 'inventory', id), data);
+      await updateDoc(doc(db, 'inventory', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `inventory/${id}`);
     }
@@ -256,7 +256,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addReportLog = async (r: ReportLog) => {
     const { id, ...data } = r;
     try {
-      await setDoc(doc(db, 'reportLogs', id), data);
+      await setDoc(doc(db, 'reportLogs', String(id)), data);
     } catch (error) {
        handleFirestoreError(error, OperationType.CREATE, `reportLogs/${id}`);
     }
@@ -265,7 +265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addAuditLog = async (a: AuditLog) => {
     const { id, ...data } = a;
     try {
-      await setDoc(doc(db, 'auditLogs', id), data);
+      await setDoc(doc(db, 'auditLogs', String(id)), data);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `auditLogs/${id}`);
     }
@@ -276,7 +276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Or we will just use the normal logic in the components. Wait, to persist data in DB `users` collection:
     const { id, ...data } = u;
     try {
-      await setDoc(doc(db, 'users', id), data);
+      await setDoc(doc(db, 'users', String(id)), data);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${id}`);
     }

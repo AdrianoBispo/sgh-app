@@ -394,7 +394,7 @@ export function Agendamentos() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Paciente</label>
-              <select required name="patientId" defaultValue={editingAppt?.patientId} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
+              <select required name="patientId" defaultValue={editingAppt?.patientId || ''} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
                 <option value="">Selecione...</option>
                 {patients.filter(p => p.status === 'active').map(p => (
                   <option key={p.id} value={p.id}>{p.cpf} - {p.name}</option>
@@ -404,7 +404,7 @@ export function Agendamentos() {
             
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Profissional / Setor</label>
-              <select required name="doctorId" defaultValue={editingAppt?.doctorId} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
+              <select required name="doctorId" defaultValue={editingAppt?.doctorId || ''} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
                 <option value="">Selecione...</option>
                 {doctors.filter(d => d.status === 'active').map(d => (
                   <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
@@ -423,7 +423,7 @@ export function Agendamentos() {
             {(canEdit || currentUserRole === 'doctor') && editingAppt?.id && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select name="status" defaultValue={editingAppt.status} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                <select name="status" defaultValue={editingAppt.status || ''} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                   {canEdit && (
                     <>
                       <option value="Agendado">Agendado</option>
