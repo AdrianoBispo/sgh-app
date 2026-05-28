@@ -65,7 +65,7 @@ export const generateDocumentPDF = (
 
     doc.setFontSize(22);
     doc.setTextColor(14, 165, 233);
-    doc.text('Clínica Sereno', 105, 20, { align: 'center' });
+    doc.text('Hospital São Gabriel', 105, 20, { align: 'center' });
 
     doc.setFontSize(16);
     doc.setTextColor(0, 0, 0);
