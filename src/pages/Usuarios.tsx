@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useAppContext } from '../context/AppContext';
 import { Plus, Edit2, Ban, CheckCircle, Search, UserCircle, Key } from 'lucide-react';
 import { Modal } from '../components/ui/Modal';
@@ -32,6 +33,8 @@ export function Usuarios() {
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
     return matchesSearch && matchesStatus && matchesRole;
   });
+
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredUsers, 15);
 
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; data: any}>({isOpen: false, data: null});
 
@@ -221,7 +224,7 @@ export function Usuarios() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
-              {filteredUsers.map(u => (
+              {displayedItems.map(u => (
                 <tr key={u.id} className="hover:bg-gray-50/50 transition">
                   <td className="px-6 py-4 font-medium text-gray-900">{u.name}</td>
                   <td className="px-6 py-4">{u.email}</td>
@@ -261,6 +264,7 @@ export function Usuarios() {
               )}
             </tbody>
           </table>
+          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
         </div>
       </div>
 

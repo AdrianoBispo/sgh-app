@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useAppContext } from '../context/AppContext';
 import { Plus, Edit2, XCircle, AlertTriangle, Calendar as CalendarIcon, LayoutList, Search, FileText } from 'lucide-react';
 import { Appointment } from '../types';
@@ -32,6 +33,8 @@ export function Agendamentos() {
       return pt?.name.toLowerCase().includes(term) || doc?.name.toLowerCase().includes(term);
     })
     .sort((a, b) => a.time.localeCompare(b.time));
+
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredAppointments, 15);
 
   const handleFormChange = (e: React.FormEvent<HTMLFormElement>) => {
     const formData = new FormData(e.currentTarget);
@@ -239,7 +242,7 @@ export function Agendamentos() {
                   </tr>
                 ))
               ) : filteredAppointments.length > 0 ? (
-                filteredAppointments.map(a => {
+                displayedItems.map(a => {
                   const pt = patients.find(p => p.id === a.patientId);
                   const doc = doctors.find(d => d.id === a.doctorId);
                   return (
@@ -290,6 +293,7 @@ export function Agendamentos() {
               )}
             </tbody>
           </table>
+          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
         </div>
         ) : (
           <div className="overflow-x-auto p-4 bg-gray-50">

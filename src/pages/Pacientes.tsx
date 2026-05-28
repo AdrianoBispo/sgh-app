@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useAppContext } from '../context/AppContext';
 import { Search, Plus, Edit2, Ban, CheckCircle, FileText, Calendar as CalendarIcon, User, Activity, Download, FileOutput } from 'lucide-react';
 import { Patient } from '../types';
@@ -27,6 +28,8 @@ export function Pacientes() {
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredPatients, 15);
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -186,7 +189,7 @@ export function Pacientes() {
                   </tr>
                 ))
               ) : filteredPatients.length > 0 ? (
-                filteredPatients.map(p => (
+                displayedItems.map(p => (
                   <tr key={p.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSummaryPatient(p)}>
                     <td className="px-6 py-4 font-medium text-gray-900">
                       {p.name}
@@ -206,6 +209,7 @@ export function Pacientes() {
               )}
             </tbody>
           </table>
+          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
         </div>
       </div>
 

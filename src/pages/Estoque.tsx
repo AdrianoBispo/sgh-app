@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useAppContext } from '../context/AppContext';
 import { Search, Plus, Edit2, AlertTriangle, MinusCircle } from 'lucide-react';
 import { InventoryItem } from '../types';
@@ -21,6 +22,8 @@ export function Estoque() {
     const matchesStatus = statusFilter === 'all' || i.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredItems, 15);
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -184,7 +187,7 @@ export function Estoque() {
                   </tr>
                 ))
               ) : filteredItems.length > 0 ? (
-                filteredItems.map(i => {
+                displayedItems.map(i => {
                   const isLow = i.quantity <= i.minQuantity;
                   return (
                     <tr key={i.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setEditingItem(i); setIsModalOpen(true); setActiveTab('dados'); }}>
@@ -211,6 +214,7 @@ export function Estoque() {
               )}
             </tbody>
           </table>
+          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
         </div>
       </div>
 

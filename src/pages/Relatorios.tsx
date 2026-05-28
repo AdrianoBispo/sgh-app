@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useAppContext } from '../context/AppContext';
 import { Download, FileText, Filter, List, Activity, Eye } from 'lucide-react';
 import { ReportLog, AuditLog } from '../types';
@@ -11,6 +12,12 @@ export function Relatorios() {
   const [period, setPeriod] = useState('7dias');
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
   const [selectedReport, setSelectedReport] = useState<ReportLog | null>(null);
+
+  const sortedReportLogs = React.useMemo(() => [...reportLogs].reverse(), [reportLogs]);
+  const sortedAuditLogs = React.useMemo(() => [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()), [auditLogs]);
+
+  const { displayedItems: displayedReports, loadMoreRef: loadMoreReportsRef, hasMore: hasMoreReports } = useInfiniteScroll(sortedReportLogs, 15);
+  const { displayedItems: displayedAudits, loadMoreRef: loadMoreAuditsRef, hasMore: hasMoreAudits } = useInfiniteScroll(sortedAuditLogs, 15);
 
   const canGenerate = currentUserRole === 'admin' || currentUserRole === 'reception';
 
@@ -158,7 +165,7 @@ export function Relatorios() {
                   </tr>
                 ))
               ) : reportLogs.length > 0 ? (
-                [...reportLogs].reverse().map(log => (
+                displayedReports.map(log => (
                   <tr key={log.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedReport(log)}>
                     <td className="px-6 py-4">{new Date(log.generatedAt).toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4 font-medium flex items-center">
@@ -174,6 +181,7 @@ export function Relatorios() {
               )}
             </tbody>
           </table>
+          {hasMoreReports && <div ref={loadMoreReportsRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
         </div>
       </div>
         <Modal 
@@ -254,7 +262,7 @@ export function Relatorios() {
                     </tr>
                   ))
                 ) : auditLogs.length > 0 ? (
-                  [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(log => (
+                  displayedAudits.map(log => (
                     <tr 
                       key={log.id} 
                       className="hover:bg-gray-50 cursor-pointer transition"
@@ -279,6 +287,7 @@ export function Relatorios() {
                 )}
               </tbody>
             </table>
+            {hasMoreAudits && <div ref={loadMoreAuditsRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
           </div>
         </div>
       )}
