@@ -391,16 +391,16 @@ export function Pacientes() {
                            {a.notes && <p className="text-gray-500 mt-1 italic">Obs: {a.notes}</p>}
                            
                            <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-2">
-                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Comprovante')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                             <button type="button" onClick={(e) => { e.stopPropagation(); generateDocumentPDF(summaryPatient, a, doc, 'Comprovante'); }} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
                                <FileOutput className="w-3 h-3 mr-1" /> Comprovante
                              </button>
-                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Atestado')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                             <button type="button" onClick={(e) => { e.stopPropagation(); generateDocumentPDF(summaryPatient, a, doc, 'Atestado'); }} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
                                <FileOutput className="w-3 h-3 mr-1" /> Atestado
                              </button>
-                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Receituário')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                             <button type="button" onClick={(e) => { e.stopPropagation(); generateDocumentPDF(summaryPatient, a, doc, 'Receituário'); }} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
                                <FileOutput className="w-3 h-3 mr-1" /> Receituário
                              </button>
-                             <button onClick={() => generateDocumentPDF(summaryPatient, a, doc, 'Encaminhamento')} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
+                             <button type="button" onClick={(e) => { e.stopPropagation(); generateDocumentPDF(summaryPatient, a, doc, 'Encaminhamento'); }} className="text-xs flex items-center px-2 py-1 rounded bg-white border border-gray-300 hover:bg-primary-50 text-gray-700 hover:text-primary-700 font-medium transition">
                                <FileOutput className="w-3 h-3 mr-1" /> Guia / Encaminhamento
                              </button>
                            </div>
@@ -422,7 +422,8 @@ export function Pacientes() {
                 Fechar
               </button>
               <button 
-                onClick={() => generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors)}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); generatePatientSummaryPDF(summaryPatient, appointments.filter(a => a.patientId === summaryPatient.id), doctors); }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition"
               >
                 <Download className="w-5 h-5" /> Exportar Resumo

@@ -8,6 +8,7 @@ import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { ImportExportButtons } from '../components/ui/ImportExportButtons';
 import { format, parseISO, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { generateDocumentPDF } from '../lib/pdf';
 
 export function Agendamentos() {
   const { appointments, addAppointment, updateAppointment, patients, doctors, currentUserRole, isDataLoaded } = useAppContext();
@@ -531,7 +532,11 @@ export function Agendamentos() {
            <div className="grid grid-cols-1 gap-3">
              <button 
                onClick={() => {
-                 alert('Imprimindo Comprovante de Agendamento...');
+                 if (docModal.appt) {
+                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
+                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
+                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Comprovante');
+                 }
                  setDocModal({isOpen: false, appt: null});
                }}
                className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
@@ -547,7 +552,11 @@ export function Agendamentos() {
 
              <button 
                onClick={() => {
-                 alert('Imprimindo Atestado Médico...');
+                 if (docModal.appt) {
+                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
+                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
+                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Atestado');
+                 }
                  setDocModal({isOpen: false, appt: null});
                }}
                className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
@@ -563,7 +572,11 @@ export function Agendamentos() {
 
              <button 
                onClick={() => {
-                 alert('Imprimindo Receituário...');
+                 if (docModal.appt) {
+                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
+                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
+                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Receituário');
+                 }
                  setDocModal({isOpen: false, appt: null});
                }}
                className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
@@ -579,7 +592,11 @@ export function Agendamentos() {
 
              <button 
                onClick={() => {
-                 alert('Imprimindo Encaminhamento...');
+                 if (docModal.appt) {
+                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
+                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
+                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Encaminhamento');
+                 }
                  setDocModal({isOpen: false, appt: null});
                }}
                className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
