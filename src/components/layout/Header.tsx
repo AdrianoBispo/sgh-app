@@ -30,21 +30,19 @@ export function Header() {
     }
   }, [isDark]);
 
-  let title = "Serene";
-  let subtitle = "CLINIC SYSTEM";
+  let title = "Hospital São Gabriel";
+  let subtitle = "Visão Geral";
 
   if (location.pathname === '/pacientes') {
-    subtitle += " • Pacientes";
+    subtitle = "Pacientes";
   } else if (location.pathname === '/medicos') {
-    subtitle += " • Médicos";
+    subtitle = "Médicos";
   } else if (location.pathname === '/agendamentos') {
-    subtitle += " • Agendamentos";
+    subtitle = "Agendamentos";
   } else if (location.pathname === '/estoque') {
-    subtitle += " • Estoque";
+    subtitle = "Estoque";
   } else if (location.pathname === '/relatorios') {
-    subtitle += " • Relatórios";
-  } else {
-    subtitle += " • Dashboard Geral";
+    subtitle = "Relatórios";
   }
 
   const userDisplayName = user?.displayName || user?.email?.split('@')[0] || 'Usuário';
