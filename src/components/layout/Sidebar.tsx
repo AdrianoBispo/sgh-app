@@ -1,68 +1,102 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, HeartPulse } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
-import { 
-  HeartPulse,
-  LayoutDashboard, 
-  Users, 
-  Stethoscope, 
-  Calendar, 
-  Package, 
-  FileText 
-} from 'lucide-react';
+import { APP_NAME, APP_TAGLINE, navigationFor } from '../../lib/navigation';
 import { cn } from '../../lib/utils';
 
-export function Sidebar() {
-  const { currentUserRole } = useAppContext();
+const PIN_STORAGE_KEY = 'sidebar:pinned';
 
-  const navigation = [
-    { name: 'Dashboard', to: '/', icon: LayoutDashboard },
-    { name: 'Pacientes', to: '/pacientes', icon: Users, roles: ['admin', 'reception', 'doctor'] },
-    { name: 'Agendamentos', to: '/agendamentos', icon: Calendar, roles: ['admin', 'reception', 'doctor'] },
-    { name: 'Estoque', to: '/estoque', icon: Package, roles: ['admin', 'pharmacy'] },
-    { name: 'Relatórios', to: '/relatorios', icon: FileText, roles: ['admin', 'reception'] },
-    { name: 'Usuários', to: '/usuarios', icon: Users, roles: ['admin'] },
-  ].filter(item => {
-    if (currentUserRole === 'pharmacy') return item.name === 'Dashboard' || item.name === 'Estoque';
-    if (!item.roles) return true;
-    return item.roles.includes(currentUserRole);
+interface SidebarProps {
+  /** Controla a gaveta em telas pequenas. */
+  isOpen?: boolean;
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onNavigate }: SidebarProps) {
+  const { currentUserRole } = useAppContext();
+  const navigation = navigationFor(currentUserRole);
+
+  const [pinned, setPinned] = useState(() => {
+    try {
+      return localStorage.getItem(PIN_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
   });
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(PIN_STORAGE_KEY, String(pinned));
+    } catch {
+      // Preferência não persistida; o estado vale para esta sessão.
+    }
+  }, [pinned]);
+
+  // Rótulos sempre visíveis no mobile (gaveta larga) e no modo fixado;
+  // no modo compacto aparecem ao passar o mouse ou ao focar via teclado.
+  const labelClass = cn(
+    'whitespace-nowrap transition-opacity duration-200',
+    pinned ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100',
+  );
+
   return (
-    <nav className="group w-20 hover:w-64 transition-all duration-300 ease-in-out bg-white border-r border-gray-200 flex flex-col py-6 gap-6 flex-shrink-0 relative overflow-hidden z-20">
-      <div className="flex items-center px-4 w-64 gap-4 mb-2">
-        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center text-emerald-600">
-          <HeartPulse className="w-8 h-8" />
+    <nav
+      aria-label="Navegação principal"
+      className={cn(
+        'group fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col gap-6 overflow-hidden border-r border-gray-200 bg-white py-6',
+        'transition-[width,transform] duration-300 ease-in-out lg:static lg:z-auto lg:translate-x-0',
+        pinned ? 'lg:w-64' : 'lg:w-20 lg:hover:w-64 lg:focus-within:w-64',
+        isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+      )}
+    >
+      <div className="mb-2 flex w-64 items-center gap-4 px-4">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center text-emerald-600">
+          <HeartPulse className="h-8 w-8" aria-hidden="true" />
         </div>
-        <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-          <span className="font-bold text-lg text-gray-900 leading-tight">Serene</span>
-          <span className="text-xs text-gray-500 font-medium tracking-wide">CLINIC SYSTEM</span>
+        <div className={cn('flex flex-col', labelClass)}>
+          <span className="text-lg font-bold leading-tight text-gray-900">{APP_NAME}</span>
+          <span className="text-xs font-medium tracking-wide text-gray-500">{APP_TAGLINE}</span>
         </div>
       </div>
-      
-      <div className="flex flex-col gap-2 text-gray-500 px-3 w-64">
+
+      <div className="flex w-64 flex-col gap-2 px-3 text-gray-500">
         {navigation.map((item) => (
           <NavLink
             key={item.name}
             to={item.to}
+            end={item.to === '/'}
             title={item.name}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium cursor-pointer',
-                isActive 
-                  ? 'bg-primary-50 text-primary-700 shadow-sm' 
-                  : 'hover:text-gray-900 hover:bg-gray-100'
+                'flex items-center gap-3 rounded-xl px-3 py-3 font-medium transition-all',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+                isActive ? 'bg-primary-50 text-primary-700 shadow-sm' : 'hover:bg-gray-100 hover:text-gray-900',
               )
             }
           >
-            <item.icon className="w-6 h-6 flex-shrink-0" />
-            <span className="whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-[15px]">
-              {item.name}
-            </span>
+            <item.icon className="h-6 w-6 shrink-0" aria-hidden="true" />
+            <span className={cn('text-[15px]', labelClass)}>{item.name}</span>
           </NavLink>
         ))}
+      </div>
+
+      <div className="mt-auto hidden w-64 px-3 lg:block">
+        <button
+          type="button"
+          onClick={() => setPinned((current) => !current)}
+          aria-pressed={pinned}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+        >
+          {pinned ? (
+            <ChevronLeft className="h-5 w-5 shrink-0" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+          )}
+          <span className={labelClass}>{pinned ? 'Recolher menu' : 'Fixar menu'}</span>
+        </button>
       </div>
     </nav>
   );
 }
-

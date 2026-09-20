@@ -7,6 +7,19 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    build: {
+      // Separa as dependências pesadas para que o cache do navegador não seja
+      // invalidado a cada deploy da aplicação.
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+            charts: ['recharts'],
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

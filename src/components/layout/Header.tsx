@@ -1,125 +1,121 @@
-import React, { useState, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { Role } from '../../types';
-import { Shield, Bell, UserCircle, LogOut, Sun, Moon, Settings } from 'lucide-react';
+import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { LogOut, Menu, Moon, Sun } from 'lucide-react';
+import { useAppContext } from '../../context/AppContext';
 import { Modal } from '../ui/Modal';
+import { APP_NAME, ROLE_NAMES, pageTitle } from '../../lib/navigation';
+import { useTheme } from '../../lib/theme';
 
-const roleNames: Record<Role, string> = {
-  admin: 'Administrador',
-  reception: 'Recepção',
-  doctor: 'Médico',
-  pharmacy: 'Farmacêutico'
-};
+interface HeaderProps {
+  onToggleSidebar: () => void;
+}
 
-export function Header() {
+export function Header({ onToggleSidebar }: HeaderProps) {
   const { currentUserRole, user, logout } = useAppContext();
   const location = useLocation();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [isDark, setIsDark] = useState(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
+  const { isDark, toggle } = useTheme();
 
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
-
-  let title = "Hospital São Gabriel";
-  let subtitle = "Visão Geral";
-
-  if (location.pathname === '/pacientes') {
-    subtitle = "Pacientes";
-  } else if (location.pathname === '/medicos') {
-    subtitle = "Médicos";
-  } else if (location.pathname === '/agendamentos') {
-    subtitle = "Agendamentos";
-  } else if (location.pathname === '/estoque') {
-    subtitle = "Estoque";
-  } else if (location.pathname === '/relatorios') {
-    subtitle = "Relatórios";
-  }
-
+  const { title, subtitle } = pageTitle(location.pathname);
   const userDisplayName = user?.displayName || user?.email?.split('@')[0] || 'Usuário';
+  const initials = userDisplayName.slice(0, 2);
 
   return (
-    <header className="flex justify-between items-center shrink-0">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">{title}</h1>
-        <p className="text-gray-500 text-sm mt-1">{subtitle}</p>
-      </div>
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={() => setIsConfigOpen(true)}
-          className="bg-white px-4 py-2 rounded-xl border border-gray-200 flex items-center gap-3 shadow-sm hover:shadow-md transition cursor-pointer text-left"
+    <header className="flex shrink-0 items-center justify-between gap-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-label="Abrir menu de navegação"
+          className="rounded-xl border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50 lg:hidden"
         >
-          {user?.photoURL ? (
-            <img src={user.photoURL} alt={userDisplayName} referrerPolicy="no-referrer" className="w-8 h-8 rounded-full" />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs uppercase">
-              {userDisplayName.substring(0, 2)}
-            </div>
-          )}
-          <div className="text-sm hidden md:block pr-3">
-            <p className="font-medium text-gray-700 leading-none mb-1 truncate max-w-[120px]">{userDisplayName}</p>
-            <p className="text-gray-400 text-xs leading-none"> {roleNames[currentUserRole]}</p>
-          </div>
+          <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-bold text-gray-800">{title}</h1>
+          <p className="mt-1 truncate text-sm text-gray-500">{subtitle}</p>
+        </div>
       </div>
 
-      <Modal isOpen={isConfigOpen} onClose={() => setIsConfigOpen(false)} title="Configurações e Perfil">
+      <button
+        type="button"
+        onClick={() => setIsConfigOpen(true)}
+        aria-label="Abrir configurações e perfil"
+        className="flex shrink-0 items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 text-left shadow-sm transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 sm:px-4"
+      >
+        {user?.photoURL ? (
+          <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />
+        ) : (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold uppercase text-emerald-700">
+            {initials}
+          </div>
+        )}
+        <div className="hidden pr-1 text-sm md:block">
+          <p className="mb-1 max-w-[140px] truncate font-medium leading-none text-gray-700">{userDisplayName}</p>
+          <p className="text-xs leading-none text-gray-400">{ROLE_NAMES[currentUserRole]}</p>
+        </div>
+      </button>
+
+      <Modal
+        isOpen={isConfigOpen}
+        onClose={() => setIsConfigOpen(false)}
+        title="Configurações e perfil"
+        description={`${APP_NAME} — preferências desta conta`}
+      >
         <div className="space-y-6">
-          <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="flex items-center gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
             {user?.photoURL ? (
-              <img src={user.photoURL} alt={userDisplayName} referrerPolicy="no-referrer" className="w-16 h-16 rounded-full" />
+              <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-16 w-16 rounded-full" />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-2xl uppercase shadow-inner">
-                {userDisplayName.substring(0, 2)}
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-2xl font-bold uppercase text-emerald-700 shadow-inner">
+                {initials}
               </div>
             )}
-            <div>
-              <h3 className="font-bold text-lg text-gray-900">{user?.displayName || 'Usuário'}</h3>
-              <p className="text-gray-600 font-medium text-sm">{user?.email}</p>
-              <div className="mt-1">
-                 <span className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs font-semibold rounded-full border border-primary-200">{roleNames[currentUserRole]}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <h4 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider">Aparência</h4>
-            <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-white shadow-sm">
-              <div className="flex items-center gap-3">
-                 {isDark ? <Moon className="w-5 h-5 text-gray-600" /> : <Sun className="w-5 h-5 text-amber-500" />}
-                 <div>
-                   <p className="font-medium text-gray-800">Tema do Sistema</p>
-                   <p className="text-xs text-gray-500">Alternar entre claro e escuro</p>
-                 </div>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" checked={isDark} onChange={() => setIsDark(!isDark)} />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-              </label>
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-bold text-gray-900">{user?.displayName || userDisplayName}</h3>
+              <p className="truncate text-sm font-medium text-gray-600">{user?.email}</p>
+              <span className="mt-1 inline-block rounded-full border border-primary-200 bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700">
+                {ROLE_NAMES[currentUserRole]}
+              </span>
             </div>
           </div>
 
-           <div>
-            <h4 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider">Sessão</h4>
-            <button 
-              onClick={() => { setIsConfigOpen(false); logout(); }}
-              className="w-full flex items-center justify-between p-3 border border-red-200 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition shadow-sm font-medium"
-            >
+          <section>
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-800">Aparência</h4>
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-3">
-                <LogOut className="w-5 h-5" />
-                Sair do sistema
+                {isDark ? (
+                  <Moon className="h-5 w-5 text-gray-600" aria-hidden="true" />
+                ) : (
+                  <Sun className="h-5 w-5 text-amber-500" aria-hidden="true" />
+                )}
+                <div>
+                  <p className="font-medium text-gray-800">Tema do sistema</p>
+                  <p className="text-xs text-gray-500">Alternar entre claro e escuro</p>
+                </div>
               </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <span className="sr-only">Ativar tema escuro</span>
+                <input type="checkbox" className="peer sr-only" checked={isDark} onChange={toggle} />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500" />
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-800">Sessão</h4>
+            <button
+              type="button"
+              onClick={() => {
+                setIsConfigOpen(false);
+                void logout();
+              }}
+              className="flex w-full items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 font-medium text-red-700 shadow-sm transition hover:bg-red-100"
+            >
+              <LogOut className="h-5 w-5" aria-hidden="true" />
+              Sair do sistema
             </button>
-           </div>
+          </section>
         </div>
       </Modal>
     </header>

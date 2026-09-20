@@ -1,5 +1,18 @@
 export type Role = 'admin' | 'reception' | 'doctor' | 'pharmacy';
 
+export type EntityStatus = 'active' | 'inactive';
+
+export type AppointmentStatus =
+  | 'Agendado'
+  | 'Confirmado'
+  | 'Aguardando Atendimento'
+  | 'Em Andamento'
+  | 'Concluído'
+  | 'Cancelado'
+  | 'Faltou';
+
+export type AppointmentType = 'Consulta' | 'Exame';
+
 export interface Patient {
   id: string;
   name: string;
@@ -7,8 +20,9 @@ export interface Patient {
   birthDate: string;
   contact: string;
   bloodType?: string;
+  /** Alergias, comorbidades e observações clínicas. */
   description?: string;
-  status: 'active' | 'inactive';
+  status: EntityStatus;
 }
 
 export interface Doctor {
@@ -18,19 +32,21 @@ export interface Doctor {
   specialty: string;
   contact: string;
   availability: string;
-  status: 'active' | 'inactive';
+  email?: string;
+  status: EntityStatus;
 }
 
 export interface Appointment {
   id: string;
   patientId: string;
   doctorId: string;
-  type: 'Consulta' | 'Exame';
+  type: AppointmentType;
   date: string;
   time: string;
-  status: 'Agendado' | 'Confirmado' | 'Aguardando Atendimento' | 'Em Andamento' | 'Concluído' | 'Cancelado' | 'Faltou';
+  status: AppointmentStatus;
   notes?: string;
-  cid10?: string; // Informado pelo médico
+  /** Informado pelo médico durante o atendimento. */
+  cid10?: string;
 }
 
 export interface InventoryItem {
@@ -40,7 +56,7 @@ export interface InventoryItem {
   expiryDate: string;
   quantity: number;
   minQuantity: number;
-  status: 'active' | 'inactive';
+  status: EntityStatus;
 }
 
 export interface ReportLog {
@@ -61,6 +77,16 @@ export interface AuditLog {
   details: string;
   userId: string;
   timestamp: string;
-  beforeData?: any;
-  afterData?: any;
+  beforeData?: unknown;
+  afterData?: unknown;
+}
+
+export interface SystemUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  cpf?: string;
+  contact?: string;
+  status: EntityStatus;
 }

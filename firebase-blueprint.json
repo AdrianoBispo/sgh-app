@@ -5,94 +5,357 @@
       "description": "A patient registered in the hospital.",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "cpf": { "type": "string" },
-        "birthDate": { "type": "string" },
-        "contact": { "type": "string" },
-        "bloodType": { "type": "string" },
-        "allergies": { "type": "string" },
-        "comorbidities": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "inactive"] }
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "cpf": {
+          "type": "string",
+          "description": "CPF com máscara XXX.XXX.XXX-XX, validado pelos dígitos verificadores. Imutável após a criação."
+        },
+        "birthDate": {
+          "type": "string",
+          "description": "Data local no formato AAAA-MM-DD. Imutável após a criação."
+        },
+        "contact": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "bloodType": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Alergias, comorbidades e observações clínicas."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        }
       },
-      "required": ["name", "cpf", "birthDate", "contact", "status"]
+      "required": [
+        "name",
+        "cpf",
+        "birthDate",
+        "contact",
+        "status"
+      ]
     },
     "Doctor": {
       "title": "Doctor",
       "description": "A doctor registered in the hospital.",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "crm": { "type": "string" },
-        "specialty": { "type": "string" },
-        "contact": { "type": "string" },
-        "availability": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "inactive"] }
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "crm": {
+          "type": "string",
+          "description": "Formato NÚMERO-UF (ex.: 12345-SP). Imutável após a criação."
+        },
+        "specialty": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "contact": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "availability": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "E-mail de acesso, espelhado do documento em users/."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        }
       },
-      "required": ["name", "crm", "specialty", "contact", "availability", "status"]
+      "required": [
+        "name",
+        "crm",
+        "specialty",
+        "contact",
+        "availability",
+        "status"
+      ]
     },
     "Appointment": {
       "title": "Appointment",
       "description": "An appointment or exam scheduled in the hospital.",
       "type": "object",
       "properties": {
-        "patientId": { "type": "string" },
-        "doctorId": { "type": "string" },
-        "type": { "type": "string", "enum": ["Consulta", "Exame"] },
-        "date": { "type": "string" },
-        "time": { "type": "string" },
-        "status": { "type": "string", "enum": ["Agendado", "Concluído", "Cancelado"] },
-        "notes": { "type": "string" }
+        "patientId": {
+          "type": "string",
+          "description": "Imutável após a criação."
+        },
+        "doctorId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "Consulta",
+            "Exame"
+          ]
+        },
+        "date": {
+          "type": "string",
+          "description": "Data local AAAA-MM-DD."
+        },
+        "time": {
+          "type": "string",
+          "description": "Hora local HH:MM."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Agendado",
+            "Confirmado",
+            "Aguardando Atendimento",
+            "Em Andamento",
+            "Concluído",
+            "Cancelado",
+            "Faltou"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "cid10": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Diagnóstico informado pelo médico durante o atendimento."
+        }
       },
-      "required": ["patientId", "doctorId", "type", "date", "time", "status"]
+      "required": [
+        "patientId",
+        "doctorId",
+        "type",
+        "date",
+        "time",
+        "status"
+      ]
     },
     "InventoryItem": {
       "title": "Inventory Item",
       "description": "An item in the hospital inventory.",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "batch": { "type": "string" },
-        "expiryDate": { "type": "string" },
-        "quantity": { "type": "number" },
-        "minQuantity": { "type": "number" },
-        "status": { "type": "string", "enum": ["active", "inactive"] }
+        "name": {
+          "type": "string"
+        },
+        "batch": {
+          "type": "string"
+        },
+        "expiryDate": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "minQuantity": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        }
       },
-      "required": ["name", "batch", "expiryDate", "quantity", "minQuantity", "status"]
+      "required": [
+        "name",
+        "batch",
+        "expiryDate",
+        "quantity",
+        "minQuantity",
+        "status"
+      ]
     },
     "ReportLog": {
       "title": "Report Log",
       "description": "A log of a generated report.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "type": { "type": "string" },
-        "generatedAt": { "type": "string" },
-        "generatedBy": { "type": "string" },
-        "parameters": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "generatedBy": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Período efetivamente aplicado ao relatório."
+        }
       },
-      "required": ["title", "type", "generatedAt", "generatedBy", "parameters"]
+      "required": [
+        "title",
+        "type",
+        "generatedAt",
+        "generatedBy",
+        "parameters"
+      ]
+    },
+    "SystemUser": {
+      "title": "System User",
+      "description": "Conta de acesso ao sistema e seu perfil de permissão.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "admin",
+            "reception",
+            "doctor",
+            "pharmacy"
+          ]
+        },
+        "cpf": {
+          "type": "string"
+        },
+        "contact": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ],
+          "description": "Contas inativas são bloqueadas no login e pelas regras de escrita."
+        }
+      },
+      "required": [
+        "name",
+        "email",
+        "role",
+        "status"
+      ]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Registro imutável de ações críticas (somente acréscimo).",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "entityType": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "entityId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "entityName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "userId": {
+          "type": "string",
+          "description": "Deve ser igual ao uid autenticado."
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO 8601."
+        },
+        "beforeData": {
+          "type": "object"
+        },
+        "afterData": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "action",
+        "entityType",
+        "entityId",
+        "entityName",
+        "details",
+        "userId",
+        "timestamp"
+      ]
     }
   },
   "firestore": {
     "patients/{patientId}": {
-      "schema": { "$ref": "#/entities/Patient" },
+      "schema": {
+        "$ref": "#/entities/Patient"
+      },
       "description": "Collection of all patients."
     },
     "doctors/{doctorId}": {
-      "schema": { "$ref": "#/entities/Doctor" },
+      "schema": {
+        "$ref": "#/entities/Doctor"
+      },
       "description": "Collection of all doctors."
     },
     "appointments/{appointmentId}": {
-      "schema": { "$ref": "#/entities/Appointment" },
+      "schema": {
+        "$ref": "#/entities/Appointment"
+      },
       "description": "Collection of all appointments."
     },
     "inventory/{inventoryId}": {
-      "schema": { "$ref": "#/entities/InventoryItem" },
+      "schema": {
+        "$ref": "#/entities/InventoryItem"
+      },
       "description": "Collection of all inventory items."
     },
     "reportLogs/{reportLogId}": {
-      "schema": { "$ref": "#/entities/ReportLog" },
+      "schema": {
+        "$ref": "#/entities/ReportLog"
+      },
       "description": "Collection of all generated reports."
+    },
+    "users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/SystemUser"
+      },
+      "description": "Perfis de acesso. Leitura da lista restrita a administradores."
+    },
+    "auditLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/AuditLog"
+      },
+      "description": "Trilha de auditoria somente-acréscimo."
     }
   }
 }

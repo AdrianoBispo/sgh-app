@@ -1,126 +1,195 @@
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { Patient, Appointment, Doctor } from '../types';
+import type { jsPDF } from 'jspdf';
+import { Appointment, Doctor, Patient } from '../types';
+import { ageFromBirthDate, formatDateBR } from './date';
+import { APP_NAME, CLINIC_NAME } from './navigation';
 
-export const generatePatientSummaryPDF = (patient: Patient, appointments: Appointment[], docs: Doctor[]) => {
-  try {
-    const doc = new jsPDF();
+export const DOCUMENT_TYPES = ['Comprovante', 'Atestado', 'Receituário', 'Encaminhamento'] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
-    doc.setFontSize(22);
-    doc.setTextColor(14, 165, 233); // Primary color
-    doc.text('Resumo do Paciente', 14, 20);
+/**
+ * `jspdf` e `jspdf-autotable` somam centenas de kB e só são necessários quando
+ * alguém emite um documento — por isso entram por import dinâmico, fora do
+ * bundle inicial.
+ */
+async function loadPdfLibs() {
+  const [{ jsPDF }, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  return { jsPDF, autoTable: autoTable.default };
+}
 
-    doc.setFontSize(12);
-    doc.setTextColor(55, 65, 81); // gray-700
-    doc.text(`Nome: ${patient.name}`, 14, 30);
-    doc.text(`CPF: ${patient.cpf}`, 14, 38);
-    doc.text(`Data de Nasc.: ${new Date(patient.birthDate).toLocaleDateString('pt-BR')}`, 14, 46);
-    doc.text(`Contato: ${patient.contact}`, 14, 54);
-    if (patient.bloodType) doc.text(`Tipo Sanguíneo: ${patient.bloodType}`, 14, 62);
+const PRIMARY: [number, number, number] = [14, 165, 233];
+const PAGE_WIDTH = 210;
+const MARGIN = 14;
+const CENTER = PAGE_WIDTH / 2;
 
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Informações Clínicas', 14, 78);
-    
+/** Nome de arquivo seguro (sem acentos nem separadores de caminho). */
+const slugify = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase() || 'documento';
+
+function header(doc: jsPDF, title: string, subtitle?: string): void {
+  doc.setFontSize(18);
+  doc.setTextColor(...PRIMARY);
+  doc.text(CLINIC_NAME, CENTER, 18, { align: 'center' });
+
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`${APP_NAME} · Sistema de gestão clínica`, CENTER, 24, { align: 'center' });
+
+  doc.setFontSize(16);
+  doc.setTextColor(0, 0, 0);
+  doc.text(title.toUpperCase(), CENTER, 34, { align: 'center' });
+
+  if (subtitle) {
     doc.setFontSize(10);
-    doc.text(`Descrição / Observações: ${patient.description || 'Nenhuma registrada'}`, 14, 86);
+    doc.setTextColor(90, 90, 90);
+    doc.text(subtitle, CENTER, 40, { align: 'center' });
+  }
 
-    doc.setFontSize(14);
-    doc.text('Histórico de Consultas e Exames', 14, 110);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(MARGIN, 44, PAGE_WIDTH - MARGIN, 44);
+  doc.setTextColor(0, 0, 0);
+}
 
-    const tableData = appointments.map(a => {
-      const doctor = docs.find(d => d.id === a.doctorId);
-      return [
-        new Date(`${a.date}T12:00:00`).toLocaleDateString('pt-BR'),
-        a.time,
-        a.type,
-        doctor?.name || 'Desconhecido',
-        a.status
-      ];
-    });
+function footer(doc: jsPDF, withSignature: boolean): void {
+  if (withSignature) {
+    doc.setDrawColor(0, 0, 0);
+    doc.line(65, 232, 145, 232);
+    doc.setFontSize(10);
+    doc.text('Assinatura e carimbo do profissional', CENTER, 238, { align: 'center' });
+  }
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text(`Emitido por ${APP_NAME} em ${new Date().toLocaleString('pt-BR')}`, CENTER, 285, { align: 'center' });
+}
+
+/**
+ * Quebra o texto na largura útil da página. Antes as frases eram posicionadas
+ * com coordenadas fixas e nomes longos vazavam para fora da margem.
+ */
+function paragraph(doc: jsPDF, text: string, y: number, lineHeight = 7): number {
+  const lines = doc.splitTextToSize(text, PAGE_WIDTH - MARGIN * 2);
+  doc.text(lines, MARGIN, y);
+  return y + lines.length * lineHeight;
+}
+
+export const generatePatientSummaryPDF = async (patient: Patient, appointments: Appointment[], doctors: Doctor[]): Promise<void> => {
+  try {
+    const { jsPDF, autoTable } = await loadPdfLibs();
+    const doc = new jsPDF();
+    header(doc, 'Resumo do paciente');
+
+    const age = ageFromBirthDate(patient.birthDate);
+    doc.setFontSize(11);
+    let cursor = 54;
+    cursor = paragraph(doc, `Nome: ${patient.name}`, cursor);
+    cursor = paragraph(doc, `CPF: ${patient.cpf}`, cursor);
+    cursor = paragraph(doc, `Nascimento: ${formatDateBR(patient.birthDate)}${age !== null ? ` (${age} anos)` : ''}`, cursor);
+    cursor = paragraph(doc, `Contato: ${patient.contact || 'Não informado'}`, cursor);
+    cursor = paragraph(doc, `Tipo sanguíneo: ${patient.bloodType || 'Não informado'}`, cursor);
+    cursor = paragraph(doc, `Situação do cadastro: ${patient.status === 'active' ? 'Ativo' : 'Inativo'}`, cursor);
+
+    cursor += 6;
+    doc.setFontSize(13);
+    doc.text('Informações clínicas', MARGIN, cursor);
+    cursor += 8;
+    doc.setFontSize(10);
+    cursor = paragraph(doc, patient.description || 'Nenhuma observação registrada.', cursor, 6);
+
+    cursor += 8;
+    doc.setFontSize(13);
+    doc.text('Histórico de consultas e exames', MARGIN, cursor);
 
     autoTable(doc, {
-      startY: 115,
-      head: [['Data', 'Hora', 'Tipo', 'Médico', 'Status']],
-      body: tableData,
+      startY: cursor + 5,
+      head: [['Data', 'Hora', 'Tipo', 'Profissional', 'Status', 'CID-10']],
+      body: appointments.map((appointment) => [
+        formatDateBR(appointment.date),
+        appointment.time,
+        appointment.type,
+        doctors.find((doctor) => doctor.id === appointment.doctorId)?.name || 'Não identificado',
+        appointment.status,
+        appointment.cid10 || '-',
+      ]),
       theme: 'grid',
-      headStyles: { fillColor: [14, 165, 233] },
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: PRIMARY },
     });
 
-    doc.save(`resumo_paciente_${patient.name.replace(/\s+/g, '_')}.pdf`);
+    footer(doc, false);
+    doc.save(`resumo_paciente_${slugify(patient.name)}.pdf`);
   } catch (error) {
-    console.error('Error generating summary:', error);
-    alert('Erro ao gerar resumo: ' + (error as Error).message);
+    console.error('Erro ao gerar resumo do paciente:', error);
+    throw new Error('Não foi possível gerar o PDF do resumo.');
   }
 };
 
-export const generateDocumentPDF = (
+export const generateDocumentPDF = async (
   patient: Patient,
   appointment: Appointment,
   doctor: Doctor | undefined,
-  docType: 'Comprovante' | 'Atestado' | 'Receituário' | 'Encaminhamento'
-) => {
+  docType: DocumentType,
+): Promise<void> => {
   try {
+    const { jsPDF } = await loadPdfLibs();
     const doc = new jsPDF();
+    header(doc, docType, `Atendimento de ${formatDateBR(appointment.date)} às ${appointment.time}`);
 
-    doc.setFontSize(22);
-    doc.setTextColor(14, 165, 233);
-    doc.text('Hospital São Gabriel', 105, 20, { align: 'center' });
+    doc.setFontSize(11);
+    let cursor = 54;
+    cursor = paragraph(doc, `Paciente: ${patient.name}`, cursor);
+    cursor = paragraph(doc, `CPF: ${patient.cpf}`, cursor);
+    cursor = paragraph(doc, `Profissional: ${doctor?.name || 'Não identificado'}${doctor?.crm ? ` — CRM ${doctor.crm}` : ''}`, cursor);
+    if (doctor?.specialty) cursor = paragraph(doc, `Especialidade: ${doctor.specialty}`, cursor);
 
-    doc.setFontSize(16);
-    doc.setTextColor(0, 0, 0);
-    doc.text(docType.toUpperCase(), 105, 35, { align: 'center' });
+    cursor += 4;
+    doc.setDrawColor(220, 220, 220);
+    doc.line(MARGIN, cursor, PAGE_WIDTH - MARGIN, cursor);
+    cursor += 10;
 
-    doc.setFontSize(12);
-    doc.text(`Paciente: ${patient.name}`, 14, 50);
-    doc.text(`CPF: ${patient.cpf}`, 14, 58);
-    doc.text(`Médico: ${doctor?.name || 'Desconhecido'}`, 14, 66);
-    if (doctor?.crm) doc.text(`CRM: ${doctor.crm}`, 14, 74);
-    
-    doc.text(`Data do Atendimento: ${new Date(`${appointment.date}T12:00:00`).toLocaleDateString('pt-BR')}`, 14, 82);
+    const cid = appointment.cid10 ? appointment.cid10.toUpperCase() : '__________';
 
-    doc.setLineWidth(0.5);
-    doc.line(14, 90, 196, 90);
-
-    doc.setFontSize(12);
-    
-    let currentY = 100;
-    
     if (docType === 'Comprovante') {
-      doc.text(`COMPROVANTE DE AGENDAMENTO`, 14, currentY);
-      doc.text(`Tipo: ${appointment.type}`, 14, currentY + 10);
-      doc.text(`Status: ${appointment.status}`, 14, currentY + 20);
-      doc.text(`Data: ${new Date(`${appointment.date}T12:00:00`).toLocaleDateString('pt-BR')} às ${appointment.time}`, 14, currentY + 30);
+      cursor = paragraph(doc, `Tipo de atendimento: ${appointment.type}`, cursor);
+      cursor = paragraph(doc, `Data e hora: ${formatDateBR(appointment.date)} às ${appointment.time}`, cursor);
+      cursor = paragraph(doc, `Situação: ${appointment.status}`, cursor);
+      if (appointment.notes) cursor = paragraph(doc, `Observações: ${appointment.notes}`, cursor);
     } else if (docType === 'Atestado') {
-      doc.text(`Atesto, para os devidos fins, que o(a) paciente ${patient.name}, portador(a)`, 14, currentY);
-      doc.text(`do CPF ${patient.cpf}, esteve sob meus cuidados médicos no dia`, 14, currentY + 8);
-      doc.text(`${new Date(`${appointment.date}T12:00:00`).toLocaleDateString('pt-BR')}, devendo afastar-se de suas atividades laborais por`, 14, currentY + 16);
-      doc.text(`___ dias a partir desta data, por motivo de saúde (CID: ______ ).`, 14, currentY + 24);
+      cursor = paragraph(
+        doc,
+        `Atesto, para os devidos fins, que o(a) paciente ${patient.name}, portador(a) do CPF ${patient.cpf}, ` +
+          `esteve sob meus cuidados profissionais no dia ${formatDateBR(appointment.date)}, às ${appointment.time}.`,
+        cursor,
+      );
+      cursor += 4;
+      cursor = paragraph(doc, `Deve afastar-se de suas atividades por ______ dia(s) a partir desta data.`, cursor);
+      cursor = paragraph(doc, `CID-10: ${cid}`, cursor);
     } else if (docType === 'Receituário') {
-      doc.text(`Prescrição Médica:`, 14, currentY);
-      doc.text(`Uso Interno/Externo`, 14, currentY + 10);
-      doc.line(14, currentY + 15, 196, currentY + 15);
-      // blank lines for manual filling or mock text
-      doc.text(`1. ______________________________________________________________`, 14, currentY + 30);
-      doc.text(`2. ______________________________________________________________`, 14, currentY + 45);
-      doc.text(`3. ______________________________________________________________`, 14, currentY + 60);
-    } else if (docType === 'Encaminhamento') {
-      doc.text(`Ao Colega Especialista,`, 14, currentY);
-      doc.text(`Encaminho o(a) paciente ${patient.name} para avaliação e conduta`, 14, currentY + 10);
-      doc.text(`especializada.`, 14, currentY + 18);
-      doc.text(`Motivo: _________________________________________________________`, 14, currentY + 34);
-      doc.text(`_________________________________________________________________`, 14, currentY + 44);
+      cursor = paragraph(doc, 'Prescrição:', cursor);
+      cursor += 4;
+      for (let line = 1; line <= 6; line++) {
+        doc.text(`${line}. ${'_'.repeat(70)}`, MARGIN, cursor);
+        cursor += 12;
+      }
+    } else {
+      cursor = paragraph(doc, 'Ao(À) colega especialista,', cursor);
+      cursor += 2;
+      cursor = paragraph(doc, `Encaminho o(a) paciente ${patient.name} para avaliação e conduta especializada.`, cursor);
+      cursor = paragraph(doc, `Hipótese diagnóstica (CID-10): ${cid}`, cursor);
+      cursor += 4;
+      for (let line = 0; line < 3; line++) {
+        doc.text('_'.repeat(75), MARGIN, cursor);
+        cursor += 12;
+      }
     }
 
-    // Footer / Signature
-    doc.line(65, 230, 145, 230);
-    doc.setFontSize(10);
-    doc.text(`Assinatura e Carimbo do Médico`, 105, 235, { align: 'center' });
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 105, 280, { align: 'center' });
-
-    doc.save(`${docType.toLowerCase()}_${patient.name.replace(/\s+/g, '_')}.pdf`);
+    footer(doc, docType !== 'Comprovante');
+    doc.save(`${slugify(docType)}_${slugify(patient.name)}.pdf`);
   } catch (error) {
-    console.error('Error generating document:', error);
-    alert('Erro ao gerar documento: ' + (error as Error).message);
+    console.error('Erro ao gerar documento:', error);
+    throw new Error('Não foi possível gerar o PDF do documento.');
   }
 };

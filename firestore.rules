@@ -17,9 +17,24 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
-    
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    // Só quem tem cadastro de perfil participa do sistema. Contas autenticadas
+    // sem documento em `users` não recebem mais acesso presumido.
+    function hasProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
     function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return hasProfile() && profile().data.role == 'admin';
+    }
+    // Usuários marcados como inativos ficam bloqueados também no servidor,
+    // e não apenas na interface.
+    function isActive() {
+      return hasProfile() && profile().data.get('status', 'active') != 'inactive';
+    }
+    function canWrite() {
+      return isAdmin() || isActive();
     }
 
     // ----------------------------------------------------
@@ -34,24 +49,29 @@ service cloud.firestore {
           && data.status is string && data.status in ['active', 'inactive']
           // Optional fields
           && (('bloodType' in data) ? (data.bloodType is string && data.bloodType.size() <= 10) : true)
+          // `description` é o campo usado pela aplicação para alergias,
+          // comorbidades e observações clínicas.
+          && (('description' in data) ? (data.description is string && data.description.size() <= 2000) : true)
           && (('allergies' in data) ? (data.allergies is string && data.allergies.size() <= 1000) : true)
           && (('comorbidities' in data) ? (data.comorbidities is string && data.comorbidities.size() <= 1000) : true);
     }
-    
+
     function isValidPatientCreate(data) {
-      return isValidPatient(data) 
-        && data.keys().size() <= 8; // Enforce exact keys or max keys
+      return isValidPatient(data)
+        && data.keys().size() <= 8;
     }
 
     function isValidDoctor(data) {
       return data.keys().hasAll(['name', 'crm', 'specialty', 'contact', 'availability', 'status'])
-          && data.keys().size() == 6
+          && data.keys().size() <= 7
           && data.name is string && data.name.size() > 0 && data.name.size() <= 100
           && data.crm is string && data.crm.size() > 0 && data.crm.size() <= 50
           && data.specialty is string && data.specialty.size() > 0 && data.specialty.size() <= 100
           && data.contact is string && data.contact.size() > 0 && data.contact.size() <= 100
           && data.availability is string && data.availability.size() > 0 && data.availability.size() <= 200
-          && data.status is string && data.status in ['active', 'inactive'];
+          && data.status is string && data.status in ['active', 'inactive']
+          // A ficha do profissional é criada junto com o usuário do sistema.
+          && (('email' in data) ? (data.email is string && data.email.size() <= 200) : true);
     }
 
     function isValidAppointment(data) {
@@ -59,16 +79,23 @@ service cloud.firestore {
           && data.patientId is string && data.patientId.size() > 0 && data.patientId.size() <= 128
           && data.doctorId is string && data.doctorId.size() > 0 && data.doctorId.size() <= 128
           && data.type is string && data.type in ['Consulta', 'Exame']
-          && data.date is string && data.date.size() > 0 && data.date.size() <= 20
-          && data.time is string && data.time.size() > 0 && data.time.size() <= 20
-          && data.status is string && data.status in ['Agendado', 'Concluído', 'Cancelado']
-          // Optional field check
-          && (('notes' in data) ? (data.notes is string && data.notes.size() <= 2000) : true);
+          && data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && data.time is string && data.time.matches('^[0-9]{2}:[0-9]{2}$')
+          // Fluxo completo de atendimento. A lista anterior tinha apenas três
+          // status, então recepção e médicos não conseguiam gravar
+          // "Confirmado", "Aguardando Atendimento", "Em Andamento" nem "Faltou".
+          && data.status is string && data.status in [
+               'Agendado', 'Confirmado', 'Aguardando Atendimento',
+               'Em Andamento', 'Concluído', 'Cancelado', 'Faltou'
+             ]
+          // Optional fields
+          && (('notes' in data) ? (data.notes is string && data.notes.size() <= 2000) : true)
+          && (('cid10' in data) ? (data.cid10 is string && data.cid10.size() <= 20) : true);
     }
-    
+
     function isValidAppointmentCreate(data) {
       return isValidAppointment(data)
-          && data.keys().size() <= 7;
+          && data.keys().size() <= 8;
     }
 
     function isValidInventoryItem(data) {
@@ -88,8 +115,19 @@ service cloud.firestore {
           && data.title is string && data.title.size() > 0 && data.title.size() <= 200
           && data.type is string && data.type.size() > 0 && data.type.size() <= 100
           && data.generatedAt is string && data.generatedAt.size() > 0 && data.generatedAt.size() <= 30
-          && data.generatedBy is string && data.generatedBy.size() > 0 && data.generatedBy.size() <= 128
+          && data.generatedBy is string && data.generatedBy.size() > 0 && data.generatedBy.size() <= 200
           && data.parameters is string && data.parameters.size() <= 2000;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['action', 'entityType', 'entityId', 'entityName', 'details', 'userId', 'timestamp'])
+          && data.action is string && data.action.size() <= 100
+          && data.entityType is string && data.entityType.size() <= 50
+          && data.entityId is string && data.entityId.size() <= 128
+          && data.entityName is string && data.entityName.size() <= 200
+          && data.details is string && data.details.size() <= 2000
+          && data.userId is string && data.userId.size() <= 128
+          && data.timestamp is string && data.timestamp.size() <= 30;
     }
 
     // ----------------------------------------------------
@@ -98,113 +136,105 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false;
     }
-    
-    // Test collection for bootup connection check
-    match /test/connection {
-      allow read: if true;
-    }
 
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && request.auth.uid == userId 
+      // Cada pessoa lê o próprio perfil; a lista completa (com CPF e contato)
+      // fica restrita à administração.
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (isSignedIn()
+          && request.auth.uid == userId
           && incoming().role in ['reception', 'doctor', 'pharmacy']);
-      allow update: if isAdmin(); // Role changes must be done via Firebase Console by admin or by admin role
+      allow update: if isAdmin(); // Mudança de papel/status é privativa do admin
       allow delete: if isAdmin();
     }
 
     match /patients/{patientId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && isValidId(patientId) 
+      allow read, list: if hasProfile();
+      allow create: if isAdmin() || (canWrite()
+          && isValidId(patientId)
           && isValidPatientCreate(incoming()));
-      allow update: if isAdmin() || (isSignedIn() 
-          && isValidId(patientId) 
+      allow update: if isAdmin() || (canWrite()
+          && isValidId(patientId)
           && isValidPatient(incoming())
           && (
-            // Only allow updating these fields
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'bloodType', 'allergies', 'comorbidities', 'status'])
-            // cpf and birthDate should be immutable
+            incoming().diff(existing()).affectedKeys()
+              .hasOnly(['name', 'contact', 'bloodType', 'description', 'allergies', 'comorbidities', 'status'])
+            // cpf e birthDate são imutáveis (a interface bloqueia os campos)
             && incoming().cpf == existing().cpf
             && incoming().birthDate == existing().birthDate
           ));
-      allow delete: if isAdmin(); // Logical deletes used (status = inactive)
+      allow delete: if isAdmin(); // Exclusão lógica (status = inactive)
     }
 
     match /doctors/{doctorId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && isValidId(doctorId) 
+      allow read, list: if hasProfile();
+      allow create: if isAdmin() || (canWrite()
+          && isValidId(doctorId)
           && isValidDoctor(incoming()));
-      allow update: if isAdmin() || (isSignedIn() 
-          && isValidId(doctorId) 
+      allow update: if isAdmin() || (canWrite()
+          && isValidId(doctorId)
           && isValidDoctor(incoming())
           && (
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'availability', 'specialty', 'status'])
+            incoming().diff(existing()).affectedKeys()
+              .hasOnly(['name', 'contact', 'availability', 'specialty', 'email', 'status'])
             && incoming().crm == existing().crm
           ));
       allow delete: if isAdmin();
     }
 
     match /appointments/{appointmentId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && isValidId(appointmentId) 
+      allow read, list: if hasProfile();
+      allow create: if isAdmin() || (canWrite()
+          && isValidId(appointmentId)
           && isValidAppointmentCreate(incoming()));
-      allow update: if isAdmin() || (isSignedIn() 
-          && isValidId(appointmentId) 
+      allow update: if isAdmin() || (canWrite()
+          && isValidId(appointmentId)
           && isValidAppointment(incoming())
           && (
-            incoming().diff(existing()).affectedKeys().hasOnly(['date', 'time', 'status', 'notes', 'doctorId', 'type'])
+            // `cid10` entra aqui porque o diagnóstico é preenchido pelo médico
+            // durante o atendimento.
+            incoming().diff(existing()).affectedKeys()
+              .hasOnly(['date', 'time', 'status', 'notes', 'doctorId', 'type', 'cid10'])
             && incoming().patientId == existing().patientId
           ));
       allow delete: if isAdmin();
     }
 
     match /inventory/{inventoryId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && isValidId(inventoryId) 
+      allow read, list: if hasProfile();
+      allow create: if isAdmin() || (canWrite()
+          && isValidId(inventoryId)
           && isValidInventoryItem(incoming()));
-      allow update: if isAdmin() || (isSignedIn() 
-          && isValidId(inventoryId) 
+      // A farmácia também corrige cadastro (nome, lote e validade); toda
+      // alteração fica registrada na trilha de auditoria.
+      allow update: if isAdmin() || (canWrite()
+          && isValidId(inventoryId)
           && isValidInventoryItem(incoming())
-          && (
-            incoming().diff(existing()).affectedKeys().hasOnly(['quantity', 'status', 'minQuantity'])
-            && incoming().name == existing().name
-            && incoming().batch == existing().batch
-            && incoming().expiryDate == existing().expiryDate
-          ));
+          && incoming().diff(existing()).affectedKeys()
+               .hasOnly(['name', 'batch', 'expiryDate', 'quantity', 'minQuantity', 'status']));
       allow delete: if isAdmin();
     }
 
     match /reportLogs/{reportLogId} {
-      allow read, list: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() 
-          && isValidId(reportLogId) 
+      allow read, list: if hasProfile();
+      allow create: if isAdmin() || (canWrite()
+          && isValidId(reportLogId)
           && isValidReportLog(incoming()));
-      allow update: if isAdmin(); // Reports are immutable once generated unless by admin
+      allow update: if isAdmin(); // Relatórios são imutáveis após a geração
       allow delete: if isAdmin();
     }
 
-    function isValidAuditLog(data) {
-      return data.keys().hasAll(['action', 'entityType', 'entityId', 'entityName', 'details', 'userId', 'timestamp'])
-          && data.action is string
-          && data.entityType is string
-          && data.entityId is string
-          && data.entityName is string
-          && data.details is string
-          && data.userId is string
-          && data.timestamp is string;
-    }
-
     match /auditLogs/{logId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() 
-          && isValidId(logId) 
+      // Em consultas de lista o Firestore exige que o filtro satisfaça a regra:
+      // quem não é admin só consegue listar a própria trilha.
+      allow read: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if canWrite()
+          && isValidId(logId)
           && isValidAuditLog(incoming())
           && incoming().userId == request.auth.uid;
-      allow update, delete: if isAdmin();
+      // A trilha é somente-acréscimo: nem o admin altera registros passados.
+      allow update, delete: if false;
     }
   }
 }

@@ -1,297 +1,350 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Patient, Doctor, Appointment, InventoryItem, ReportLog, AuditLog, Role } from '../types';
-import { mockPatients, mockDoctors, mockAppointments, mockInventory, mockReportLogs } from '../data/mockData';
-import { auth, db } from '../lib/firebase';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, query, where } from 'firebase/firestore';
-import { OperationType, handleFirestoreError } from '../lib/firebase-errors';
+import {
+  DocumentData,
+  FirestoreError,
+  QuerySnapshot,
+  collection,
+  deleteField,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import { Appointment, AuditLog, Doctor, InventoryItem, Patient, ReportLog, Role, SystemUser } from '../types';
+import { auth, db } from '../lib/firebase';
+import { OperationType, toAppError } from '../lib/firebase-errors';
+import { generateId } from '../lib/id';
+import { useToast } from '../components/ui/Toast';
+
+/** Estado do perfil do usuário autenticado. */
+export type RoleStatus = 'loading' | 'ready' | 'missing' | 'blocked';
+
+export interface NewAuditLog {
+  action: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  details: string;
+  beforeData?: unknown;
+  afterData?: unknown;
+}
 
 interface AppContextData {
   currentUserRole: Role;
-  setCurrentUserRole: (role: Role) => void;
+  roleStatus: RoleStatus;
   user: User | null;
   loading: boolean;
   logout: () => Promise<void>;
+
   patients: Patient[];
   doctors: Doctor[];
   appointments: Appointment[];
   inventory: InventoryItem[];
   reportLogs: ReportLog[];
   auditLogs: AuditLog[];
-  
-  systemUsers: any[];
-  addSystemUser: (u: any) => Promise<void>;
-  
-  // Basic CRUD for MVP
-  addPatient: (p: Patient) => void;
-  updatePatient: (p: Patient) => void;
-  
-  addDoctor: (d: Doctor) => void;
-  updateDoctor: (d: Doctor) => void;
-  
-  addAppointment: (a: Appointment) => void;
-  updateAppointment: (a: Appointment) => void;
-  
-  addInventoryItem: (i: InventoryItem) => void;
-  updateInventoryItem: (i: InventoryItem) => void;
-  
-  addReportLog: (r: ReportLog) => void;
-  addAuditLog: (a: AuditLog) => void;
-  
+  systemUsers: SystemUser[];
+
+  savePatient: (patient: Patient, mode: 'create' | 'update') => Promise<void>;
+  saveDoctor: (doctor: Doctor, mode: 'create' | 'update') => Promise<void>;
+  saveAppointment: (appointment: Appointment, mode: 'create' | 'update') => Promise<void>;
+  saveInventoryItem: (item: InventoryItem, mode: 'create' | 'update') => Promise<void>;
+  addReportLog: (report: ReportLog) => Promise<void>;
+  /** Registra a trilha de auditoria; nunca derruba a operação principal. */
+  recordAudit: (entry: NewAuditLog) => Promise<void>;
+
   isDataLoaded: boolean;
 }
 
 const AppContext = createContext<AppContextData | undefined>(undefined);
 
+/** Coleções acompanhadas em tempo real e usadas no indicador de carregamento. */
+const TRACKED_COLLECTIONS = ['patients', 'doctors', 'appointments', 'inventory', 'reportLogs', 'auditLogs'] as const;
+type TrackedCollection = (typeof TRACKED_COLLECTIONS)[number];
+
+const mapSnapshot = <T,>(snapshot: QuerySnapshot<DocumentData>): T[] =>
+  snapshot.docs.map((document) => ({ id: document.id, ...document.data() }) as T);
+
+/**
+ * O Firestore recusa a gravação inteira ao encontrar `undefined` em qualquer
+ * profundidade — o que acontece com facilidade nos retratos "antes/depois" da
+ * auditoria, montados a partir de objetos com campos opcionais.
+ */
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripUndefined) as T;
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, stripUndefined(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
+  const toast = useToast();
+
   const [currentUserRole, setCurrentUserRole] = useState<Role>('reception');
+  const [roleStatus, setRoleStatus] = useState<RoleStatus>('loading');
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDataLoaded, setIsDataLoaded] = useState(false);
-  
+
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [reportLogs, setReportLogs] = useState<ReportLog[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
+  const [loaded, setLoaded] = useState<Record<TrackedCollection, boolean>>(
+    () => Object.fromEntries(TRACKED_COLLECTIONS.map((name) => [name, false])) as Record<TrackedCollection, boolean>,
+  );
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        setUser(u);
-        try {
-          const userDoc = await getDoc(doc(db, 'users', u.uid));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            if (data.role) {
-              setCurrentUserRole(data.role as Role);
-            }
-          } else {
-             // Default if no role document is found
-             setCurrentUserRole('reception');
-          }
-        } catch (error) {
-          console.error("Error fetching user role", error);
-        }
-        setLoading(false);
-      } else {
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (!authUser) {
         setUser(null);
+        setRoleStatus('loading');
+        setLoading(false);
+        return;
+      }
+
+      setUser(authUser);
+      try {
+        const profile = await getDoc(doc(db, 'users', authUser.uid));
+        const data = profile.data();
+
+        if (!profile.exists() || !data?.role) {
+          // Sem perfil não há papel presumido: antes o sistema concedia
+          // "reception" por padrão a qualquer conta autenticada.
+          setRoleStatus('missing');
+        } else if (data.status === 'inactive') {
+          // O cadastro permitia bloquear um usuário, mas nada checava isso no login.
+          setRoleStatus('blocked');
+        } else {
+          setCurrentUserRole(data.role as Role);
+          setRoleStatus('ready');
+        }
+      } catch (error) {
+        toAppError(error, OperationType.GET, `users/${authUser.uid}`);
+        setRoleStatus('missing');
+      } finally {
         setLoading(false);
       }
     });
-    return () => unsubscribe();
+
+    return unsubscribe;
   }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await signOut(auth);
-  };
-
-  const [systemUsers, setSystemUsers] = useState<any[]>([]);
+    setRoleStatus('loading');
+  }, []);
 
   useEffect(() => {
-    if (!user) {
-      setIsDataLoaded(false);
+    if (!user || roleStatus !== 'ready') {
+      setLoaded(Object.fromEntries(TRACKED_COLLECTIONS.map((name) => [name, false])) as Record<TrackedCollection, boolean>);
       return;
     }
-    
-    let loadedCount = 0;
-    const checkLoaded = () => {
-      loadedCount++;
-      if (loadedCount === 6) { // still 6 because systemUsers is separate
-        setIsDataLoaded(true);
-      }
+
+    const markLoaded = (name: TrackedCollection) => setLoaded((current) => ({ ...current, [name]: true }));
+
+    /**
+     * Um erro de leitura também encerra o carregamento. Antes um contador
+     * único era incrementado só no caminho feliz, então qualquer coleção
+     * negada pelas regras deixava a tela em esqueleto para sempre.
+     */
+    const subscribeError = (name: TrackedCollection, message: string) => (error: FirestoreError) => {
+      markLoaded(name);
+      toast.error(toAppError(error, OperationType.LIST, name).message + ` (${message})`);
     };
 
-    // Subscribe to firestore collections
-    const unsubPatients = onSnapshot(collection(db, 'patients'), (snapshot) => {
-      const data: Patient[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as Patient));
-      setPatients(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'patients'));
+    const unsubscribers = [
+      onSnapshot(
+        collection(db, 'patients'),
+        (snapshot) => {
+          setPatients(mapSnapshot<Patient>(snapshot));
+          markLoaded('patients');
+        },
+        subscribeError('patients', 'pacientes'),
+      ),
+      onSnapshot(
+        collection(db, 'doctors'),
+        (snapshot) => {
+          setDoctors(mapSnapshot<Doctor>(snapshot));
+          markLoaded('doctors');
+        },
+        subscribeError('doctors', 'profissionais'),
+      ),
+      onSnapshot(
+        collection(db, 'appointments'),
+        (snapshot) => {
+          setAppointments(mapSnapshot<Appointment>(snapshot));
+          markLoaded('appointments');
+        },
+        subscribeError('appointments', 'agendamentos'),
+      ),
+      onSnapshot(
+        collection(db, 'inventory'),
+        (snapshot) => {
+          setInventory(
+            mapSnapshot<InventoryItem>(snapshot).map((item) => ({
+              ...item,
+              quantity: Number(item.quantity) || 0,
+              minQuantity: Number(item.minQuantity) || 0,
+            })),
+          );
+          markLoaded('inventory');
+        },
+        subscribeError('inventory', 'estoque'),
+      ),
+      onSnapshot(
+        collection(db, 'reportLogs'),
+        (snapshot) => {
+          setReportLogs(mapSnapshot<ReportLog>(snapshot));
+          markLoaded('reportLogs');
+        },
+        subscribeError('reportLogs', 'relatórios'),
+      ),
+      onSnapshot(
+        currentUserRole === 'admin'
+          ? collection(db, 'auditLogs')
+          : query(collection(db, 'auditLogs'), where('userId', '==', user.uid)),
+        (snapshot) => {
+          setAuditLogs(mapSnapshot<AuditLog>(snapshot));
+          markLoaded('auditLogs');
+        },
+        subscribeError('auditLogs', 'auditoria'),
+      ),
+    ];
 
-    const unsubDoctors = onSnapshot(collection(db, 'doctors'), (snapshot) => {
-      const data: Doctor[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as Doctor));
-      setDoctors(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'doctors'));
-
-    const unsubAppointments = onSnapshot(collection(db, 'appointments'), (snapshot) => {
-      const data: Appointment[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as Appointment));
-      setAppointments(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'appointments'));
-
-    const unsubInventory = onSnapshot(collection(db, 'inventory'), (snapshot) => {
-      const data: InventoryItem[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as InventoryItem));
-      setInventory(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'inventory'));
-
-    const unsubReports = onSnapshot(collection(db, 'reportLogs'), (snapshot) => {
-      const data: ReportLog[] = [];
-      snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as ReportLog));
-      setReportLogs(data);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'reportLogs'));
-
-    let unsubUsers = () => {};
     if (currentUserRole === 'admin') {
-      unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-        const data: any[] = [];
-        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-        setSystemUsers(data);
-      }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
-    }
-
-    let unsubAudit = () => {};
-    if (currentUserRole === 'admin') {
-      unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
-        const data: AuditLog[] = [];
-        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
-        setAuditLogs(data);
-        checkLoaded();
-      }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+      unsubscribers.push(
+        onSnapshot(
+          collection(db, 'users'),
+          (snapshot) => setSystemUsers(mapSnapshot<SystemUser>(snapshot)),
+          (error) => toast.error(toAppError(error, OperationType.LIST, 'users').message + ' (usuários)'),
+        ),
+      );
     } else {
-      const q = query(collection(db, 'auditLogs'), where('userId', '==', user.uid));
-      unsubAudit = onSnapshot(q, (snapshot) => {
-        const data: AuditLog[] = [];
-        snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as AuditLog));
-        setAuditLogs(data);
-        checkLoaded();
-      }, (err) => handleFirestoreError(err, OperationType.LIST, 'auditLogs'));
+      setSystemUsers([]);
     }
 
-    return () => {
-      unsubPatients();
-      unsubDoctors();
-      unsubAppointments();
-      unsubInventory();
-      unsubReports();
-      unsubAudit();
-      unsubUsers();
-    };
-  }, [user, currentUserRole]);
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [user, roleStatus, currentUserRole, toast]);
 
-  const addPatient = async (p: Patient) => {
-    const { id, ...data } = p;
-    try {
-      await setDoc(doc(db, 'patients', String(id)), data);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `patients/${id}`);
-    }
-  };
-  
-  const updatePatient = async (p: Patient) => {
-    const { id, ...data } = p;
-    try {
-      // @ts-ignore
-      await updateDoc(doc(db, 'patients', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.UPDATE, `patients/${id}`);
-    }
-  };
+  /**
+   * Grava um documento. `create` usa `setDoc`; `update` usa `updateDoc` para
+   * que as regras consigam comparar com o documento anterior.
+   */
+  const writeDocument = useCallback(
+    async <T extends { id: string }>(collectionName: string, entity: T, mode: 'create' | 'update') => {
+      const { id, ...data } = entity;
+      const path = `${collectionName}/${id}`;
+      const entries = Object.entries(data);
 
-  const addDoctor = async (d: Doctor) => {
-    const { id, ...data } = d;
-    try {
-      await setDoc(doc(db, 'doctors', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.CREATE, `doctors/${id}`);
-    }
-  };
-  
-  const updateDoctor = async (d: Doctor) => {
-    const { id, ...data } = d;
-    try {
-      // @ts-ignore
-      await updateDoc(doc(db, 'doctors', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.UPDATE, `doctors/${id}`);
-    }
-  };
-
-  const addAppointment = async (a: Appointment) => {
-    const { id, ...data } = a;
-    try {
-      await setDoc(doc(db, 'appointments', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.CREATE, `appointments/${id}`);
-    }
-  };
-  
-  const updateAppointment = async (a: Appointment) => {
-    const { id, ...data } = a;
-    try {
-      // @ts-ignore
-      await updateDoc(doc(db, 'appointments', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`); // Added ignore to bypass deep partial type error
-    }
-  };
-
-  const addInventoryItem = async (i: InventoryItem) => {
-    const { id, ...data } = i;
-    try {
-      await setDoc(doc(db, 'inventory', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.CREATE, `inventory/${id}`);
-    }
-  };
-  
-  const updateInventoryItem = async (i: InventoryItem) => {
-    const { id, ...data } = i;
-    try {
-      // @ts-ignore
-      await updateDoc(doc(db, 'inventory', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.UPDATE, `inventory/${id}`);
-    }
-  };
-
-  const addReportLog = async (r: ReportLog) => {
-    const { id, ...data } = r;
-    try {
-      await setDoc(doc(db, 'reportLogs', String(id)), data);
-    } catch (error) {
-       handleFirestoreError(error, OperationType.CREATE, `reportLogs/${id}`);
-    }
-  };
-
-  const addAuditLog = async (a: AuditLog) => {
-    const { id, ...data } = a;
-    try {
-      await setDoc(doc(db, 'auditLogs', String(id)), data);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `auditLogs/${id}`);
-    }
-  };
-
-  const addSystemUser = async (u: any) => {
-    // This function will be called from a different app instance to avoid logging out the admin
-    // Or we will just use the normal logic in the components. Wait, to persist data in DB `users` collection:
-    const { id, ...data } = u;
-    try {
-      await setDoc(doc(db, 'users', String(id)), data);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${id}`);
-    }
-  };
-
-  return (
-    <AppContext.Provider value={{
-      currentUserRole, setCurrentUserRole, user, loading, logout, isDataLoaded,
-      patients, doctors, appointments, inventory, reportLogs, auditLogs, systemUsers, addSystemUser,
-      addPatient, updatePatient, addDoctor, updateDoctor,
-      addAppointment, updateAppointment, addInventoryItem, updateInventoryItem, addReportLog, addAuditLog
-    }}>
-      {children}
-    </AppContext.Provider>
+      try {
+        if (mode === 'create') {
+          // Campos `undefined` quebram o Firestore; removê-los aqui evita que
+          // cada página precise montar o payload manualmente.
+          const payload = Object.fromEntries(entries.filter(([, value]) => value !== undefined));
+          await setDoc(doc(db, collectionName, id), stripUndefined(payload));
+        } else {
+          // Na atualização, um campo opcional esvaziado precisa ser removido do
+          // documento — antes ele simplesmente permanecia com o valor antigo.
+          const payload = Object.fromEntries(
+            entries.map(([key, value]) => [key, value === undefined ? deleteField() : stripUndefined(value)]),
+          );
+          await updateDoc(doc(db, collectionName, id), payload as DocumentData);
+        }
+      } catch (error) {
+        throw toAppError(error, mode === 'create' ? OperationType.CREATE : OperationType.UPDATE, path);
+      }
+    },
+    [],
   );
+
+  const savePatient = useCallback(
+    (patient: Patient, mode: 'create' | 'update') => writeDocument('patients', patient, mode),
+    [writeDocument],
+  );
+  const saveDoctor = useCallback(
+    (entity: Doctor, mode: 'create' | 'update') => writeDocument('doctors', entity, mode),
+    [writeDocument],
+  );
+  const saveAppointment = useCallback(
+    (appointment: Appointment, mode: 'create' | 'update') => writeDocument('appointments', appointment, mode),
+    [writeDocument],
+  );
+  const saveInventoryItem = useCallback(
+    (item: InventoryItem, mode: 'create' | 'update') => writeDocument('inventory', item, mode),
+    [writeDocument],
+  );
+  const addReportLog = useCallback(
+    (report: ReportLog) => writeDocument('reportLogs', report, 'create'),
+    [writeDocument],
+  );
+
+  const recordAudit = useCallback(
+    async (entry: NewAuditLog) => {
+      if (!user) return;
+      try {
+        await writeDocument(
+          'auditLogs',
+          stripUndefined({
+            ...entry,
+            id: generateId(),
+            userId: user.uid,
+            timestamp: new Date().toISOString(),
+          }),
+          'create',
+        );
+      } catch (error) {
+        // A auditoria é complementar: registra no console e avisa discretamente,
+        // mas nunca desfaz nem bloqueia a operação que o usuário concluiu.
+        console.error('Falha ao registrar auditoria', error);
+        toast.warning('A ação foi salva, mas não foi possível registrar a auditoria.');
+      }
+    },
+    [user, writeDocument, toast],
+  );
+
+  const isDataLoaded = useMemo(() => TRACKED_COLLECTIONS.every((name) => loaded[name]), [loaded]);
+
+  const value = useMemo<AppContextData>(
+    () => ({
+      currentUserRole,
+      roleStatus,
+      user,
+      loading,
+      logout,
+      patients,
+      doctors,
+      appointments,
+      inventory,
+      reportLogs,
+      auditLogs,
+      systemUsers,
+      savePatient,
+      saveDoctor,
+      saveAppointment,
+      saveInventoryItem,
+      addReportLog,
+      recordAudit,
+      isDataLoaded,
+    }),
+    [
+      currentUserRole, roleStatus, user, loading, logout,
+      patients, doctors, appointments, inventory, reportLogs, auditLogs, systemUsers,
+      savePatient, saveDoctor, saveAppointment, saveInventoryItem, addReportLog, recordAudit, isDataLoaded,
+    ],
+  );
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useAppContext() {

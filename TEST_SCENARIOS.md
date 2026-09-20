@@ -1,26 +1,91 @@
-# Cenários de Teste - Sistema de Gestão Hospitalar
+# Cenários de Teste — Serene
 
-Este documento descreve os principais fluxos de testes de ponta a ponta (E2E) para garantir a integridade do sistema, focando nas regras de negócio e nas permissões (RBAC).
+Roteiros de teste ponta a ponta (E2E) das regras de negócio e do controle de acesso (RBAC).
+As regras automatizadas equivalentes estão em `src/**/*.test.ts(x)` e rodam com `npm run test`.
 
-## Cenário 1: Autenticação e Autorização (RBAC)
-- **CT01.01 (Login Admin):** Realizar login com um usuário `admin`. Verificar se todas as páginas estão acessíveis e se todas as ações (adição, edição, exclusão lógica) estão habilitadas.
-- **CT01.02 (Restrição de Recepção):** Realizar login como `reception`. Entrar no módulo de Estoque e garantir que os botões de adicionar e editar itens de farmácia estejam ocultos ou desabilitados (apenas leitura).
-- **CT01.03 (Restrição do Médico):** Realizar login como `doctor`. Tentar acessar o formulário de Agendamento/Detalhes de um paciente. Verificar se é possível adicionar anotações médicas ou alterar o status e fechar/cancelar, mas com restrições explícitas em informações centrais (se aplicável).
-- **CT01.04 (Criação de Usuário):** Realizar o cadastro de um novo usuário na tela inicial preenchendo o nome. Garantir que o nome, e-mail e função sejam gravados no banco de dados e que o usuário seja autenticado com sucesso e repassado para o painel.
+## Cenário 1 — Autenticação e autorização
 
-## Cenário 2: Gestão de Agendamentos
-- **CT02.01 (Prevenção de Conflito):** Tentar marcar duas consultas com o MESMO médico no MESMO horário. O sistema deve exibir uma mensagem indicando que o horário está indisponível ("Médico já tem agendamento neste horário.").
-- **CT02.02 (Conclusão de Consulta no Dashboard):** No Dashboard, ir à lista de 'Agendamentos Hoje', clicar sobre o botão de concluir um agendamento ("Agendado" -> "Concluído") e confirmar na modal. Validar se o status mudou na tabela de agendamentos para Concluído.
-- **CT02.03 (Visualização Diária/Semanal):** Validar se o calendário e a tabela de agenda refletem de forma fiel o agendamento salvo no banco (data e hora).
+- **CT01.01 (Login admin):** entrar como `admin` e verificar que todos os módulos aparecem no menu
+  e que as ações de criar, editar e inativar estão habilitadas.
+- **CT01.02 (Restrição da recepção):** entrar como `reception`; o módulo de Estoque não deve
+  aparecer no menu, e o acesso direto a `/estoque` deve redirecionar ao dashboard.
+- **CT01.03 (Restrição do médico):** entrar como `doctor` e abrir um agendamento. Os campos de
+  paciente, profissional, data e hora ficam desabilitados; observações, CID-10 e os status
+  clínicos (`Em Andamento`, `Concluído`) permanecem editáveis. **Salvar apenas o status não pode
+  apagar o paciente, a data nem o horário do agendamento.**
+- **CT01.04 (Cadastro de usuário):** como `admin`, criar um usuário pela tela Usuários. A sessão do
+  administrador deve continuar ativa após a criação, e o novo acesso deve entrar com a senha
+  definida. Criar um médico com CRM fora do padrão `NÚMERO-UF` deve ser recusado.
+- **CT01.05 (Conta bloqueada):** marcar um usuário como `Inativo` e tentar entrar com ele. O
+  sistema deve exibir "Acesso bloqueado" e não carregar dado algum.
+- **CT01.06 (Conta sem perfil):** autenticar uma conta sem documento em `users/`. O sistema deve
+  exibir "Perfil não configurado", sem conceder nenhuma permissão.
 
-## Cenário 3: Fluxo da Farmácia (Estoque)
-- **CT03.01 (Alerta de Estoque Mínimo):** Logar com `pharmacy` ou `admin`. Criar ou alterar um item de estoque reduzindo sua `quantidade` atual para um número <= `minQuantity`. Voltar ao Dashboard e validar a exibição do Card "Alerta de Estoque Crítico".
-- **CT03.02 (Estabilidade do Alerta):** Aumentar novamente a quantidade do produto afetado para uma margem segura maior que seu valor mínimo. Certificar-se de que a contagem do "Alerta de Estoque" no Dashboard zera e exibe a mensagem de tranquilidade ("Estoque Dentro da Margem").
+## Cenário 2 — Agendamentos
 
-## Cenário 4: Cadastro de Pacientes e Médicos
-- **CT04.01 (Ativação e Inativação):** Como `admin`, acessar a tela respectiva e desativar um médico ou paciente. Garantir que a entidade agora recebe o selo de inativa ("Inativo"), pois o sistema evita a exclusão física (`delete`) dos documentos por questões de histórico em conformidade com as regras no Firebase (`firestore.rules`).
-- **CT04.02 (Edição de Médicos):** Editar a descrição textual de disponibilidade do expediente de um médico visível para a recepção. Testar persistência das informações.
+- **CT02.01 (Conflito de horário):** marcar duas consultas para o mesmo profissional, no mesmo dia
+  e horário. O formulário deve alertar sobre o conflito e bloquear o salvamento. Cancelar o
+  primeiro agendamento deve liberar o horário.
+- **CT02.02 (Conclusão pelo dashboard):** no dashboard, concluir um atendimento do dia e confirmar
+  na modal. O status deve mudar para `Concluído` na agenda.
+- **CT02.03 (Calendário e reagendamento):** na visão de calendário, navegar entre semanas e
+  arrastar um agendamento para outro horário. Um destino ocupado deve ser recusado com aviso.
+- **CT02.04 (CID-10 persistido):** como `doctor`, informar o CID-10 em um atendimento, salvar,
+  reabrir o registro e conferir que o valor continua lá e sai no atestado em PDF.
+- **CT02.05 (Cancelamento com motivo):** o botão de confirmação só habilita com o motivo
+  preenchido, e o texto informado fica registrado nas observações.
+- **CT02.06 (Fuso horário):** com o relógio da máquina após as 21h, conferir que "Agendamentos
+  hoje" e o filtro de data continuam mostrando o dia corrente local.
 
-## Cenário 5: Relatórios e Gráficos
-- **CT05.01 (Gráficos Dashboard - Recharts):** Entrar na tela de Dashboard e conferir o estado "Carregando..." (skeleton), em seguida confirmar se o gráfico em barras exibe os 7 últimos dias e separa visualmente a métrica de exames e consultas, renderizando a tooltips ao passar o cursor.
-- **CT05.02 (Exportação CSV):** Na respectiva tela de Relatórios, gerar um novo relatório do tipo escolhido. Acionar o exportador clicando em "Baixar", para receber e verificar a formatação de separação de vírgula que foi configurada pela lógica da exportação.
+## Cenário 3 — Farmácia (estoque)
+
+- **CT03.01 (Alerta de estoque mínimo):** reduzir a quantidade de um item a um valor ≤ `minQuantity`
+  e conferir no dashboard o cartão "Alerta de estoque crítico" com o item listado.
+- **CT03.02 (Estabilidade do alerta):** elevar a quantidade acima do mínimo e conferir que o
+  dashboard volta a exibir "Estoque dentro da margem".
+- **CT03.03 (Validade):** cadastrar um lote vencido e outro com validade em menos de 30 dias;
+  ambos devem aparecer sinalizados na lista e no alerta, e o filtro "Vencidos ou a vencer" deve
+  isolá-los.
+- **CT03.04 (Saída com motivo):** registrar uma retirada maior que o saldo — deve ser recusada.
+  Registrar uma retirada válida e conferir a linha "Saída de Estoque" na aba Histórico do item.
+- **CT03.05 (Ajuste pelo formulário):** reduzir a quantidade pela edição do item e conferir que o
+  histórico registra "Ajuste de Estoque" com os valores anterior e novo.
+- **CT03.06 (Status preservado):** como `pharmacy`, editar um item inativo. Ele deve continuar
+  inativo após salvar.
+
+## Cenário 4 — Pacientes
+
+- **CT04.01 (Validação de CPF):** tentar cadastrar `111.111.111-11` ou outro CPF com dígitos
+  verificadores inválidos — deve ser recusado no próprio campo. Tentar repetir um CPF já
+  cadastrado deve apontar o paciente existente.
+- **CT04.02 (Campos imutáveis):** ao editar um paciente, CPF e data de nascimento aparecem
+  desabilitados, com a explicação no topo da modal.
+- **CT04.03 (Inativação lógica):** como `admin`, desativar um paciente. Ele recebe o selo
+  "Inativo", continua no histórico e some da seleção de novos agendamentos.
+- **CT04.04 (Histórico e PDF):** abrir o resumo de um paciente com atendimentos, conferir a ordem
+  decrescente por data e gerar o PDF de resumo e os documentos do atendimento.
+- **CT04.05 (Datas):** conferir que a data de nascimento exibida é idêntica à cadastrada, sem
+  diferença de um dia.
+
+## Cenário 5 — Relatórios e auditoria
+
+- **CT05.01 (Gráfico do dashboard):** conferir o estado de carregamento (esqueleto) e, em seguida,
+  o gráfico dos últimos 7 dias separando consultas e exames, com tooltip.
+- **CT05.02 (Recorte por período):** gerar o relatório de atendimentos em "Hoje" e em "Últimos 30
+  dias". A prévia e o CSV devem conter quantidades diferentes, coerentes com o intervalo exibido.
+- **CT05.03 (CSV íntegro):** cadastrar um paciente cujo nome contenha vírgula e aspas, exportar e
+  abrir o arquivo em uma planilha — as colunas devem permanecer alinhadas.
+- **CT05.04 (Somente ativos):** o relatório de pacientes deve trazer apenas os cadastros ativos.
+- **CT05.05 (Auditoria):** como `admin`, abrir a trilha, inspecionar um registro e conferir a
+  comparação "antes/depois". Como não administrador, apenas os próprios registros são visíveis.
+
+## Cenário 6 — Interface e acessibilidade
+
+- **CT06.01 (Mobile):** em uma tela de 390 px, abrir e fechar o menu lateral e percorrer os
+  módulos sem rolagem horizontal.
+- **CT06.02 (Teclado):** abrir uma modal, navegar com Tab (o foco não escapa do diálogo), fechar
+  com Esc e conferir que o foco volta ao elemento de origem.
+- **CT06.03 (Modais empilhados):** na farmácia, abrir um item e em seguida "Registrar saída";
+  pressionar Esc deve fechar apenas o diálogo do topo.
+- **CT06.04 (Falha de rede):** com a rede desligada, tentar salvar um registro. Deve aparecer um
+  aviso explicando a falha — sem `alert()` e sem perda silenciosa dos dados digitados.
