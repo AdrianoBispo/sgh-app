@@ -1,6 +1,6 @@
 {
-  "name": "Sistema de Gestão Hospitalar São Gabriel",
-  "description": "Sistema integrado de gestão hospitalar contemplando pacientes, médicos, agendamentos, estoque e relatórios.",
+  "name": "Serene · Sistema de Gestão Clínica",
+  "description": "Sistema integrado de gestão clínica e hospitalar: pacientes, agendamentos, farmácia, relatórios e trilha de auditoria.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

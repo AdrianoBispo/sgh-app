@@ -1,31 +1,39 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-export function useInfiniteScroll<T>(items: T[], itemsPerPage: number = 20) {
+/**
+ * Renderização incremental de listas longas.
+ *
+ * `resetKey` deve conter os filtros da tela: sem ele, quem rolasse até o item
+ * 200 e trocasse o filtro continuaria renderizando 200 linhas do novo
+ * resultado. O observer também passa a ser desconectado ao desmontar.
+ */
+export function useInfiniteScroll<T>(items: T[], itemsPerPage: number = 20, resetKey: string = '') {
   const [displayCount, setDisplayCount] = useState(itemsPerPage);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
-  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
-    if (observerRef.current) observerRef.current.disconnect();
+  useEffect(() => {
+    setDisplayCount(itemsPerPage);
+  }, [resetKey, itemsPerPage]);
 
-    if (node) {
-      observerRef.current = new IntersectionObserver(entries => {
-        if (entries[0].isIntersecting) {
-          setDisplayCount(prev => prev + itemsPerPage);
-        }
-      }, {
-        root: null,
-        rootMargin: '100px',
-        threshold: 0.1,
-      });
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  const loadMoreRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      observerRef.current?.disconnect();
+      if (!node) return;
+
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) setDisplayCount((current) => current + itemsPerPage);
+        },
+        { root: null, rootMargin: '100px', threshold: 0.1 },
+      );
       observerRef.current.observe(node);
-    }
-  }, [itemsPerPage]);
+    },
+    [itemsPerPage],
+  );
 
-  const displayedItems = useMemo(() => {
-    return items.slice(0, displayCount);
-  }, [items, displayCount]);
+  const displayedItems = useMemo(() => items.slice(0, displayCount), [items, displayCount]);
 
-  const hasMore = displayCount < items.length;
-
-  return { displayedItems, loadMoreRef, hasMore };
+  return { displayedItems, loadMoreRef, hasMore: displayCount < items.length };
 }

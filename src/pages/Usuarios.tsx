@@ -1,399 +1,586 @@
-import React, { useState } from 'react';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { FormEvent, useMemo, useState } from 'react';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { Edit2, Plus, Search, ShieldAlert } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
-import { Plus, Edit2, Ban, CheckCircle, Search, UserCircle, Key } from 'lucide-react';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { ImportExportButtons } from '../components/ui/ImportExportButtons';
-import { Role } from '../types';
-import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import type { FirebaseOptions } from 'firebase/app';
-// @ts-ignore
-import firebaseConfig from '../../firebase-applet-config.json';
-import { setDoc, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { useToast } from '../components/ui/Toast';
+import { Doctor, Role, SystemUser } from '../types';
+import { db, getSecondaryAuth } from '../lib/firebase';
+import { OperationType, authErrorMessage, describeError, toAppError } from '../lib/firebase-errors';
+import { formatCPF, validateCPF, validateCRM } from '../lib/validators';
+import { SpreadsheetRow, readField } from '../lib/spreadsheet';
+import { ROLE_NAMES } from '../lib/navigation';
+import { cn } from '../lib/utils';
 
-const secondaryApp = initializeApp(firebaseConfig as FirebaseOptions, "Secondary");
-const secondaryAuth = getAuth(secondaryApp);
+const ROLES: Role[] = ['reception', 'doctor', 'pharmacy', 'admin'];
+const MIN_PASSWORD_LENGTH = 6;
+
+interface UserFormData {
+  email: string;
+  password: string;
+  name: string;
+  role: Role;
+  cpf: string;
+  contact: string;
+  specialty: string;
+  crm: string;
+  availability: string;
+  status: 'active' | 'inactive';
+}
+
+/** Usuário em edição, com os dados profissionais já resolvidos. */
+type EditingUser = SystemUser & { doctorData?: Doctor };
+
+/** Retrato para a auditoria, sem a senha e sem campos vazios. */
+function auditSnapshot(source: Partial<UserFormData> & Partial<EditingUser>): Record<string, unknown> {
+  const { password: _password, doctorData: _doctorData, ...rest } = source;
+  return rest;
+}
 
 export function Usuarios() {
-  const { systemUsers, user, updateDoctor, addDoctor, doctors } = useAppContext();
+  const { systemUsers, doctors, isDataLoaded, recordAudit } = useAppContext();
+  const toast = useToast();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [editingUser, setEditingUser] = useState<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [editingUser, setEditingUser] = useState<EditingUser | null>(null);
+  const [selectedRole, setSelectedRole] = useState<Role>('reception');
+  const [activeTab, setActiveTab] = useState<'personal' | 'professional'>('personal');
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; data: UserFormData | null }>({ isOpen: false, data: null });
 
-  const filteredUsers = systemUsers.filter(u => {
-    const matchesSearch = u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || u.email?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
-    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
-    return matchesSearch && matchesStatus && matchesRole;
-  });
+  const filteredUsers = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return systemUsers
+      .filter((user) => {
+        const matchesSearch =
+          !term || user.name?.toLowerCase().includes(term) || user.email?.toLowerCase().includes(term);
+        const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+        const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+        return matchesSearch && matchesStatus && matchesRole;
+      })
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+  }, [systemUsers, searchTerm, statusFilter, roleFilter]);
 
-  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredUsers, 15);
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(
+    filteredUsers,
+    15,
+    `${searchTerm}|${statusFilter}|${roleFilter}`,
+  );
 
-  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean; data: any}>({isOpen: false, data: null});
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError('');
-
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-    const name = formData.get('name') as string;
-    const role = formData.get('role') as Role;
-    const cpf = formData.get('cpf') as string;
-    const contact = formData.get('contact') as string;
-    const specialty = formData.get('specialty') as string;
-    const crm = formData.get('crm') as string;
-    const availability = formData.get('availability') as string;
-    const status = formData.get('status') as string || 'active';
-
-    const data = { email, password, name, role, cpf, contact, specialty, crm, availability, status };
-
-    if (editingUser) {
-      setConfirmModal({ isOpen: true, data });
-    } else {
-      await processSave(data);
-    }
+  const validate = (data: UserFormData, isNew: boolean): string | null => {
+    if (!data.name.trim()) return 'Informe o nome completo.';
+    if (!data.email.trim()) return 'Informe o e-mail de acesso.';
+    if (isNew && data.password.length < MIN_PASSWORD_LENGTH) return `A senha inicial precisa ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+    if (data.cpf && !validateCPF(data.cpf)) return 'CPF inválido. Use o formato XXX.XXX.XXX-XX e confira os dígitos.';
+    // `validateCRM` existia no projeto mas nunca era chamado: qualquer texto
+    // era aceito como registro profissional.
+    if (data.role === 'doctor' && !validateCRM(data.crm)) return 'CRM inválido. Use o formato NÚMERO-UF (ex.: 12345-SP).';
+    if (data.role === 'doctor' && !data.specialty.trim()) return 'Informe a especialidade do profissional.';
+    return null;
   };
 
-  const processSave = async (data: any) => {
-    setAuthLoading(true);
+  const readForm = (form: HTMLFormElement): UserFormData => {
+    const formData = new FormData(form);
+    return {
+      email: String(formData.get('email') ?? editingUser?.email ?? '').trim(),
+      password: String(formData.get('password') ?? ''),
+      name: String(formData.get('name') ?? '').trim(),
+      role: (String(formData.get('role') ?? '') as Role) || editingUser?.role || selectedRole,
+      cpf: String(formData.get('cpf') ?? '').trim(),
+      contact: String(formData.get('contact') ?? '').trim(),
+      specialty: String(formData.get('specialty') ?? '').trim(),
+      crm: String(formData.get('crm') ?? '').trim().toUpperCase(),
+      availability: String(formData.get('availability') ?? '').trim(),
+      status: (String(formData.get('status') ?? 'active') as 'active' | 'inactive') || 'active',
+    };
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = readForm(event.currentTarget);
+
+    const error = validate(data, !editingUser);
+    if (error) {
+      setFormError(error);
+      return;
+    }
+    setFormError('');
+
+    // Alterações em contas existentes passam por confirmação explícita.
+    if (editingUser) setConfirmModal({ isOpen: true, data });
+    else await processSave(data);
+  };
+
+  const writeProfile = async (uid: string, data: UserFormData, merge: boolean) => {
     try {
-      if (editingUser) {
-         await setDoc(doc(db, 'users', editingUser.id), {
-           email: data.email,
-           name: data.name,
-           role: data.role,
-           cpf: data.cpf,
-           contact: data.contact,
-           status: data.status
-         }, { merge: true });
+      await setDoc(
+        doc(db, 'users', uid),
+        { email: data.email, name: data.name, role: data.role, cpf: data.cpf, contact: data.contact, status: data.status },
+        { merge },
+      );
 
-         if (data.role === 'doctor') {
-           await setDoc(doc(db, 'doctors', editingUser.id), {
-             name: data.name,
-             email: data.email,
-             contact: data.contact,
-             crm: data.crm,
-             specialty: data.specialty,
-             availability: data.availability,
-             status: data.status
-           }, { merge: true });
-         }
-      } else {
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
-        await updateProfile(userCredential.user, { displayName: data.name });
-        
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          email: userCredential.user.email,
-          name: data.name,
-          role: data.role,
-          cpf: data.cpf,
-          contact: data.contact,
-          status: data.status
-        });
-
-        if (data.role === 'doctor') {
-          await setDoc(doc(db, 'doctors', userCredential.user.uid), {
+      if (data.role === 'doctor') {
+        await setDoc(
+          doc(db, 'doctors', uid),
+          {
             name: data.name,
             email: data.email,
             contact: data.contact,
             crm: data.crm,
             specialty: data.specialty,
-            availability: data.availability,
-            status: data.status
-          });
-        }
-        await secondaryAuth.signOut();
+            availability: data.availability || 'A definir',
+            status: data.status,
+          },
+          { merge },
+        );
       }
-      
+    } catch (error) {
+      throw toAppError(error, merge ? OperationType.UPDATE : OperationType.CREATE, `users/${uid}`);
+    }
+  };
+
+  const processSave = async (data: UserFormData) => {
+    setIsSaving(true);
+    try {
+      if (editingUser) {
+        await writeProfile(editingUser.id, data, true);
+        await recordAudit({
+          action: 'Edição de Usuário',
+          entityType: 'Usuário',
+          entityId: editingUser.id,
+          entityName: data.name,
+          details: `Atualizou o cadastro de ${data.name} (${ROLE_NAMES[data.role]}), status ${data.status}.`,
+          beforeData: auditSnapshot(editingUser),
+          afterData: auditSnapshot(data),
+        });
+        toast.success('Usuário atualizado.');
+      } else {
+        // App secundário: criar a conta no app principal derrubaria a sessão
+        // do administrador que está cadastrando.
+        const secondaryAuth = getSecondaryAuth();
+        const credential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
+        await updateProfile(credential.user, { displayName: data.name });
+        await writeProfile(credential.user.uid, data, false);
+        await secondaryAuth.signOut();
+
+        await recordAudit({
+          action: 'Criação de Usuário',
+          entityType: 'Usuário',
+          entityId: credential.user.uid,
+          entityName: data.name,
+          details: `Criou o acesso de ${data.name} (${ROLE_NAMES[data.role]}).`,
+          afterData: auditSnapshot(data),
+        });
+        toast.success('Usuário criado com sucesso.');
+      }
+
       setIsModalOpen(false);
       setEditingUser(null);
       setConfirmModal({ isOpen: false, data: null });
-    } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use') {
-        setError('Este e-mail já está cadastrado.');
-      } else {
-        setError('Ocorreu um erro. Tente novamente.');
-      }
+      setActiveTab('personal');
+    } catch (error) {
+      const message = error instanceof Error && error.name === 'AppError' ? describeError(error) : authErrorMessage(error);
+      setFormError(message);
+      setConfirmModal({ isOpen: false, data: null });
+      toast.error(message);
     } finally {
-      setAuthLoading(false);
+      setIsSaving(false);
     }
   };
 
-  const handleImport = async (data: any[]) => {
-    let count = 0;
-    for (const row of data) {
-      if (row.email && row.name && row.role) {
-        await processSave({
-          email: row.email,
-          password: row.password || 'senha12345',
-          name: row.name,
-          role: row.role as Role,
-          cpf: row.cpf || '',
-          contact: row.contact || '',
-          specialty: row.specialty || '',
-          crm: row.crm || '',
-          availability: row.availability || '',
-          status: row.status === 'inactive' ? 'inactive' : 'active'
-        });
-        count++;
+  const handleImport = async (rows: SpreadsheetRow[]) => {
+    let imported = 0;
+    const problems: string[] = [];
+
+    for (const [index, row] of rows.entries()) {
+      const line = index + 2;
+      const data: UserFormData = {
+        email: readField(row, 'email'),
+        // Antes a importação criava contas com a senha fixa "senha12345"
+        // para qualquer linha sem senha — um acesso previsível ao sistema.
+        password: readField(row, 'password', 'senha'),
+        name: readField(row, 'name', 'nome'),
+        role: (readField(row, 'role', 'funcao', 'perfil') as Role) || 'reception',
+        cpf: formatCPF(readField(row, 'cpf')),
+        contact: readField(row, 'contact', 'contato', 'telefone'),
+        specialty: readField(row, 'specialty', 'especialidade'),
+        crm: readField(row, 'crm').toUpperCase(),
+        availability: readField(row, 'availability', 'disponibilidade'),
+        status: readField(row, 'status') === 'inactive' ? 'inactive' : 'active',
+      };
+
+      if (!ROLES.includes(data.role)) {
+        problems.push(`Linha ${line}: função "${data.role}" inválida.`);
+        continue;
+      }
+      const error = validate(data, true);
+      if (error) {
+        problems.push(`Linha ${line}: ${error}`);
+        continue;
+      }
+
+      try {
+        const secondaryAuth = getSecondaryAuth();
+        const credential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
+        await updateProfile(credential.user, { displayName: data.name });
+        await writeProfile(credential.user.uid, data, false);
+        await secondaryAuth.signOut();
+        imported++;
+      } catch (error) {
+        problems.push(`Linha ${line}: ${authErrorMessage(error)}`);
       }
     }
-    if (count > 0) alert(`${count} usuário(s) importado(s) com sucesso! As senhas padrões são 'senha12345' para novos usuários caso não fornecidas.`);
+
+    if (imported > 0) toast.success(`${imported} usuário(s) criado(s).`);
+    if (problems.length > 0) {
+      toast.warning(`${problems.length} linha(s) ignorada(s). ${problems.slice(0, 2).join(' ')}`);
+      console.warn('Importação de usuários:', problems);
+    }
   };
 
-  const roleNames: Record<string, string> = {
-    admin: 'Administrador',
-    reception: 'Recepção',
-    doctor: 'Médico',
-    pharmacy: 'Farmacêutico',
+  const openNew = () => {
+    setEditingUser(null);
+    setSelectedRole('reception');
+    setActiveTab('personal');
+    setFormError('');
+    setIsModalOpen(true);
   };
 
-  const [selectedRole, setSelectedRole] = useState('reception');
-  const [activeTab, setActiveTab] = useState<'personal' | 'professional'>('personal');
+  const openEdit = (user: SystemUser) => {
+    setEditingUser({ ...user, doctorData: user.role === 'doctor' ? doctors.find((doctor) => doctor.id === user.id) : undefined });
+    setSelectedRole(user.role);
+    setActiveTab('personal');
+    setFormError('');
+    setIsModalOpen(true);
+  };
+
+  const showProfessionalTab = selectedRole === 'doctor';
 
   return (
-    <div className="h-full flex flex-col space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto flex-1">
-          <div className="relative flex-1 max-w-md w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input 
-              type="text"
+    <div className="flex h-full flex-col space-y-6">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex w-full flex-1 flex-col gap-4 sm:flex-row sm:w-auto">
+          <div className="relative w-full max-w-md flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Buscar usuário por nome ou e-mail"
               placeholder="Buscar usuário..."
-              className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
-          <select 
+          <select
+            aria-label="Filtrar por função"
             value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+            onChange={(event) => setRoleFilter(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
           >
-            <option value="all">Todas as Funções</option>
-            <option value="reception">Recepção</option>
-            <option value="doctor">Médicos</option>
-            <option value="pharmacy">Farmácia</option>
-            <option value="admin">Administração</option>
+            <option value="all">Todas as funções</option>
+            {ROLES.map((role) => (
+              <option key={role} value={role}>{ROLE_NAMES[role]}</option>
+            ))}
           </select>
-          <select 
+          <select
+            aria-label="Filtrar por status"
             value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
           >
-            <option value="all">Todos os Status</option>
-            <option value="active">Apenas Ativos</option>
-            <option value="inactive">Apenas Inativos</option>
+            <option value="all">Todos os status</option>
+            <option value="active">Apenas ativos</option>
+            <option value="inactive">Apenas inativos</option>
           </select>
         </div>
-        <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0 shrink-0">
-          <ImportExportButtons 
+
+        <div className="flex w-full shrink-0 items-center gap-3 sm:w-auto">
+          <ImportExportButtons
             onImport={handleImport}
-            exportData={systemUsers.map(u => ({ ...u, password: '' }))}
+            exportData={systemUsers.map(({ id, name, email, role, cpf, contact, status }) => ({
+              id,
+              name,
+              email,
+              role,
+              cpf,
+              contact,
+              status,
+            }))}
             exportFileName="usuarios"
           />
-          <button 
-            onClick={() => { setEditingUser(null); setIsModalOpen(true); setSelectedRole('reception'); }}
-            className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition"
+          <button
+            type="button"
+            onClick={openNew}
+            className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-white transition hover:bg-primary-700"
           >
-            <Plus className="w-5 h-5 shrink-0" />
-            <span className="whitespace-nowrap">Novo Usuário</span>
+            <Plus className="h-5 w-5 shrink-0" aria-hidden="true" />
+            <span className="whitespace-nowrap">Novo usuário</span>
           </button>
         </div>
       </div>
 
-      <div className="flex-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-gray-50 text-gray-600 font-medium">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full whitespace-nowrap text-left text-sm">
+            <thead className="bg-gray-50 font-medium text-gray-600">
               <tr>
-                <th className="px-6 py-3">Nome</th>
-                <th className="px-6 py-3">E-mail</th>
-                <th className="px-6 py-3">Função</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Ações</th>
+                <th scope="col" className="px-6 py-3">Nome</th>
+                <th scope="col" className="px-6 py-3">E-mail</th>
+                <th scope="col" className="px-6 py-3">Função</th>
+                <th scope="col" className="px-6 py-3">Status</th>
+                <th scope="col" className="px-6 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-gray-800">
-              {displayedItems.map(u => (
-                <tr key={u.id} className="hover:bg-gray-50/50 transition">
-                  <td className="px-6 py-4 font-medium text-gray-900">{u.name}</td>
-                  <td className="px-6 py-4">{u.email}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                      {roleNames[u.role] || u.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5 ${u.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-800'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${u.status === 'active' ? 'bg-emerald-500' : 'bg-gray-500'}`}></span>
-                      {u.status === 'active' ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <button 
-                      onClick={() => {
-                        const doctorData = u.role === 'doctor' ? doctors.find(d => d.id === u.id) : null;
-                        setEditingUser({ ...u, doctorData });
-                        setSelectedRole(u.role);
-                        setIsModalOpen(true);
-                      }}
-                      className="text-primary-600 hover:text-primary-900 transition"
-                      title="Editar Usuário"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+              {!isDataLoaded ? (
+                Array.from({ length: 5 }).map((_, index) => (
+                  <tr key={index} className="animate-pulse">
+                    {Array.from({ length: 5 }).map((__, cell) => (
+                      <td key={cell} className="px-6 py-4"><div className="h-4 w-24 rounded bg-gray-200" /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : displayedItems.length > 0 ? (
+                displayedItems.map((user) => (
+                  <tr key={user.id} className="transition hover:bg-gray-50/50">
+                    <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
+                    <td className="px-6 py-4">{user.email}</td>
+                    <td className="px-6 py-4">
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-800">
+                        {ROLE_NAMES[user.role] || user.role}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
+                          user.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-700',
+                        )}
+                      >
+                        <span className={cn('h-1.5 w-1.5 rounded-full', user.status === 'active' ? 'bg-emerald-500' : 'bg-gray-500')} />
+                        {user.status === 'active' ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(user)}
+                        className="text-primary-600 transition hover:text-primary-800"
+                        title={`Editar ${user.name}`}
+                      >
+                        <Edit2 className="h-4 w-4" aria-hidden="true" />
+                        <span className="sr-only">Editar usuário</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
+                    {searchTerm ? 'Nenhum usuário encontrado na busca.' : 'Nenhum usuário cadastrado.'}
                   </td>
                 </tr>
-              ))}
-              {filteredUsers.length === 0 && (
-                 <tr>
-                 <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                   {searchTerm ? 'Nenhum usuário encontrado na busca.' : 'Nenhum usuário cadastrado.'}
-                 </td>
-               </tr>
               )}
             </tbody>
           </table>
-          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
+          {hasMore && (
+            <div ref={loadMoreRef} className="flex h-10 items-center justify-center text-sm text-gray-400">
+              Carregando mais...
+            </div>
+          )}
         </div>
       </div>
 
       <Modal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingUser(null); setActiveTab('personal'); }}
-        title={editingUser ? "Editar Usuário" : "Cadastrar Novo Usuário"}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingUser(null);
+          setActiveTab('personal');
+        }}
+        title={editingUser ? 'Editar usuário' : 'Cadastrar novo usuário'}
+        description={editingUser ? 'E-mail e função não podem ser alterados após a criação da conta.' : undefined}
       >
-         <form onSubmit={handleSubmit} className="space-y-4">
-           {error && (
-             <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100 text-center">
-               {error}
-             </div>
-           )}
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {formError && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{formError}</span>
+            </div>
+          )}
 
-            {selectedRole === 'doctor' && (
-              <div className="flex border-b border-gray-200 mb-4">
+          {showProfessionalTab && (
+            <div className="mb-4 flex border-b border-gray-200" role="tablist">
+              {(['personal', 'professional'] as const).map((tab) => (
                 <button
+                  key={tab}
                   type="button"
-                  onClick={() => setActiveTab('personal')}
-                  className={`px-4 py-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'personal' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+                    activeTab === tab ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                  )}
                 >
-                  Informações Pessoais
+                  {tab === 'personal' ? 'Informações pessoais' : 'Dados profissionais'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('professional')}
-                  className={`px-4 py-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'professional' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-                >
-                  Dados Profissionais
-                </button>
+              ))}
+            </div>
+          )}
+
+          <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', showProfessionalTab && activeTab !== 'personal' && 'hidden')}>
+            <div>
+              <label htmlFor="user-name" className="mb-1 block text-sm font-medium text-gray-700">Nome completo</label>
+              <input id="user-name" required name="name" defaultValue={editingUser?.name} className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500" />
+            </div>
+            <div>
+              <label htmlFor="user-email" className="mb-1 block text-sm font-medium text-gray-700">E-mail (login)</label>
+              <input
+                id="user-email"
+                type="email"
+                required
+                name="email"
+                autoComplete="off"
+                defaultValue={editingUser?.email}
+                disabled={Boolean(editingUser)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-500"
+              />
+            </div>
+            {!editingUser && (
+              <div>
+                <label htmlFor="user-password" className="mb-1 block text-sm font-medium text-gray-700">Senha inicial</label>
+                <input
+                  id="user-password"
+                  type="password"
+                  required
+                  name="password"
+                  autoComplete="new-password"
+                  minLength={MIN_PASSWORD_LENGTH}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">Mínimo de {MIN_PASSWORD_LENGTH} caracteres. Oriente a troca no primeiro acesso.</p>
               </div>
             )}
-           
-           <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${activeTab === 'personal' || selectedRole !== 'doctor' ? 'block' : 'hidden'}`}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                <input required name="name" defaultValue={editingUser?.name} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail (Login)</label>
-                <input type="email" required name="email" defaultValue={editingUser?.email} disabled={!!editingUser} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500" />
-              </div>
-              {!editingUser && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Senha Inicial</label>
-                  <input type="password" required name="password" minLength={6} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                </div>
-              )}
-               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-                <input required name="cpf" defaultValue={editingUser?.cpf} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
-               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contato / Telefone</label>
-                <input required name="contact" defaultValue={editingUser?.contact} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Função</label>
-                <select 
-                  name="role" 
-                  value={selectedRole || ''}
-                  onChange={e => { setSelectedRole(e.target.value); if (e.target.value !== 'doctor') setActiveTab('personal'); }}
-                  disabled={!!editingUser}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
-                >
-                  <option value="reception">Recepção</option>
-                  <option value="doctor">Médico</option>
-                  <option value="pharmacy">Farmacêutico</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-
-               {editingUser && (
-                 <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status do Sistema</label>
-                    <select name="status" defaultValue={editingUser?.status || 'active'} className="w-full border border-gray-300 rounded-lg px-3 py-2">
-                      <option value="active">Ativo</option>
-                      <option value="inactive">Inativo (Bloqueado)</option>
-                    </select>
-                 </div>
-               )}
-           </div>
-
-           <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${activeTab === 'professional' && selectedRole === 'doctor' ? 'block' : 'hidden'}`}>
-              {selectedRole === 'doctor' && (
-                <>
-                  <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">CRM</label>
-                   <input required={selectedRole === 'doctor'} name="crm" defaultValue={editingUser?.doctorData?.crm} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">Especialidade</label>
-                   <input required={selectedRole === 'doctor'} name="specialty" defaultValue={editingUser?.doctorData?.specialty} className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                 </div>
-                 <div className="md:col-span-2">
-                   <label className="block text-sm font-medium text-gray-700 mb-1">Disponibilidade</label>
-                   <input name="availability" defaultValue={editingUser?.doctorData?.availability} placeholder="Ex: Segundas e Quartas, 08:00 às 12:00" className="w-full border border-gray-300 rounded-lg px-3 py-2" />
-                 </div>
-                </>
-              )}
-           </div>
-           
-            <div className="pt-4 flex justify-end gap-3">
-              <button 
-                type="button" 
-                onClick={() => { setIsModalOpen(false); setEditingUser(null); setActiveTab('personal'); }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
-              >
-                Cancelar
-              </button>
-              <button 
-                type="submit"
-                disabled={authLoading}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition font-medium"
-              >
-                {authLoading ? 'Salvando...' : 'Salvar'}
-              </button>
+            <div>
+              <label htmlFor="user-cpf" className="mb-1 block text-sm font-medium text-gray-700">CPF</label>
+              <input
+                id="user-cpf"
+                required
+                name="cpf"
+                inputMode="numeric"
+                defaultValue={editingUser?.cpf}
+                placeholder="000.000.000-00"
+                onChange={(event) => {
+                  event.target.value = formatCPF(event.target.value);
+                }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono focus:ring-2 focus:ring-primary-500"
+              />
             </div>
-         </form>
+            <div>
+              <label htmlFor="user-contact" className="mb-1 block text-sm font-medium text-gray-700">Contato / telefone</label>
+              <input id="user-contact" required name="contact" defaultValue={editingUser?.contact} className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500" />
+            </div>
+            <div>
+              <label htmlFor="user-role" className="mb-1 block text-sm font-medium text-gray-700">Função</label>
+              <select
+                id="user-role"
+                name="role"
+                value={selectedRole}
+                onChange={(event) => {
+                  const role = event.target.value as Role;
+                  setSelectedRole(role);
+                  if (role !== 'doctor') setActiveTab('personal');
+                }}
+                disabled={Boolean(editingUser)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                {ROLES.map((role) => (
+                  <option key={role} value={role}>{ROLE_NAMES[role]}</option>
+                ))}
+              </select>
+            </div>
+            {editingUser && (
+              <div className="md:col-span-2">
+                <label htmlFor="user-status" className="mb-1 block text-sm font-medium text-gray-700">Status do sistema</label>
+                <select id="user-status" name="status" defaultValue={editingUser.status || 'active'} className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500">
+                  <option value="active">Ativo</option>
+                  <option value="inactive">Inativo (bloqueado)</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Contas inativas são impedidas de entrar no sistema.</p>
+              </div>
+            )}
+          </div>
+
+          {showProfessionalTab && (
+            <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', activeTab !== 'professional' && 'hidden')}>
+              <div>
+                <label htmlFor="user-crm" className="mb-1 block text-sm font-medium text-gray-700">CRM</label>
+                <input
+                  id="user-crm"
+                  name="crm"
+                  defaultValue={editingUser?.doctorData?.crm}
+                  placeholder="12345-SP"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 uppercase focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="user-specialty" className="mb-1 block text-sm font-medium text-gray-700">Especialidade</label>
+                <input id="user-specialty" name="specialty" defaultValue={editingUser?.doctorData?.specialty} className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div className="md:col-span-2">
+                <label htmlFor="user-availability" className="mb-1 block text-sm font-medium text-gray-700">Disponibilidade</label>
+                <input
+                  id="user-availability"
+                  name="availability"
+                  defaultValue={editingUser?.doctorData?.availability}
+                  placeholder="Ex.: Segundas e quartas, 08:00 às 12:00"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setIsModalOpen(false);
+                setEditingUser(null);
+                setActiveTab('personal');
+              }}
+              className="rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button type="submit" disabled={isSaving} className="rounded-lg bg-primary-600 px-4 py-2 font-medium text-white transition hover:bg-primary-700 disabled:opacity-60">
+              {isSaving ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       <ConfirmModal
         isOpen={confirmModal.isOpen}
-        onClose={() => setConfirmModal({isOpen: false, data: null})}
-        onConfirm={() => processSave(confirmModal.data)}
-        title="Confirmar Alterações"
-        message="Deseja realmente salvar as alterações neste usuário? Perfils sensíveis não devem ser alterados acidentalmente."
-        confirmText="Salvar Alterações"
+        onClose={() => setConfirmModal({ isOpen: false, data: null })}
+        onConfirm={() => confirmModal.data && void processSave(confirmModal.data)}
+        isLoading={isSaving}
+        title="Confirmar alterações"
+        message={
+          <span>
+            Salvar as alterações de <strong>{confirmModal.data?.name}</strong>? Perfis de acesso são sensíveis e afetam o que o
+            usuário enxerga no sistema.
+          </span>
+        }
+        confirmText="Salvar alterações"
         isDestructive={false}
       />
     </div>

@@ -1,96 +1,150 @@
-import React, { useState } from 'react';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useMemo, useState } from 'react';
+import { Activity, Download, Eye, FileText, Filter, List, Loader2 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
-import { Download, FileText, Filter, List, Activity, Eye } from 'lucide-react';
-import { ReportLog, AuditLog } from '../types';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { Modal } from '../components/ui/Modal';
+import { useToast } from '../components/ui/Toast';
+import { AuditLog, ReportLog } from '../types';
+import {
+  REPORT_PERIODS,
+  REPORT_TYPES,
+  ReportPeriod,
+  ReportResult,
+  ReportType,
+  buildReport,
+  describeParameters,
+  reportFileName,
+} from '../lib/reports';
+import { buildCSV, downloadCSV } from '../lib/csv';
+import { describeError } from '../lib/firebase-errors';
+import { formatDateTimeBR } from '../lib/date';
+import { generateId } from '../lib/id';
+import { ROLE_NAMES } from '../lib/navigation';
+import { cn } from '../lib/utils';
+
+const PREVIEW_ROWS = 8;
+
+/** Identifica o tipo salvo no log, tolerando relatórios antigos. */
+const parseReportType = (value: string): ReportType =>
+  (REPORT_TYPES.find((type) => type.value === value)?.value ?? 'Atendimentos') as ReportType;
 
 export function Relatorios() {
-  const { reportLogs, auditLogs, addReportLog, currentUserRole, patients, doctors, appointments, inventory, isDataLoaded } = useAppContext();
+  const { reportLogs, auditLogs, addReportLog, currentUserRole, user, patients, doctors, appointments, inventory, isDataLoaded } =
+    useAppContext();
+  const toast = useToast();
+
   const [activeTab, setActiveTab] = useState<'reports' | 'audit'>('reports');
-  const [reportType, setReportType] = useState('Atendimentos');
-  const [period, setPeriod] = useState('7dias');
+  const [reportType, setReportType] = useState<ReportType>('Atendimentos');
+  const [period, setPeriod] = useState<ReportPeriod>('7dias');
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
   const [selectedReport, setSelectedReport] = useState<ReportLog | null>(null);
-
-  const sortedReportLogs = React.useMemo(() => [...reportLogs].reverse(), [reportLogs]);
-  const sortedAuditLogs = React.useMemo(() => [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()), [auditLogs]);
-
-  const { displayedItems: displayedReports, loadMoreRef: loadMoreReportsRef, hasMore: hasMoreReports } = useInfiniteScroll(sortedReportLogs, 15);
-  const { displayedItems: displayedAudits, loadMoreRef: loadMoreAuditsRef, hasMore: hasMoreAudits } = useInfiniteScroll(sortedAuditLogs, 15);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const canGenerate = currentUserRole === 'admin' || currentUserRole === 'reception';
+  const selectedTypeInfo = REPORT_TYPES.find((type) => type.value === reportType);
 
-  const handleGenerate = () => {
+  // Os logs vinham na ordem dos IDs do Firestore e eram apenas invertidos,
+  // então "gerados recentemente" não correspondia à data de geração.
+  const sortedReportLogs = useMemo(
+    () => [...reportLogs].sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()),
+    [reportLogs],
+  );
+  const sortedAuditLogs = useMemo(
+    () => [...auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+    [auditLogs],
+  );
+
+  const { displayedItems: displayedReports, loadMoreRef: loadMoreReportsRef, hasMore: hasMoreReports } = useInfiniteScroll(
+    sortedReportLogs,
+    15,
+    'reports',
+  );
+  const { displayedItems: displayedAudits, loadMoreRef: loadMoreAuditsRef, hasMore: hasMoreAudits } = useInfiniteScroll(
+    sortedAuditLogs,
+    15,
+    'audit',
+  );
+
+  const reportData = useMemo(
+    () => ({ patients, doctors, appointments, inventory }),
+    [patients, doctors, appointments, inventory],
+  );
+
+  const previewResult: ReportResult | null = useMemo(() => {
+    if (!selectedReport) return null;
+    const type = parseReportType(selectedReport.type);
+    const storedPeriod = REPORT_PERIODS.find((item) => selectedReport.parameters.startsWith(item.label))?.value ?? period;
+    return buildReport(type, storedPeriod, reportData);
+  }, [selectedReport, reportData, period]);
+
+  const handleGenerate = async () => {
     if (!canGenerate) return;
-    
-    // Simulate generation
-    const newLog: ReportLog = {
-      id: Math.random().toString(36).substr(2, 9),
-      title: `Relatório de ${reportType}`,
+    setIsGenerating(true);
+
+    const generatedAt = new Date().toISOString();
+    const report: ReportLog = {
+      id: generateId(),
+      title: selectedTypeInfo?.label ?? `Relatório de ${reportType}`,
       type: reportType,
-      generatedAt: new Date().toISOString(),
-      generatedBy: currentUserRole === 'admin' ? 'Administrador' : 'Recepção',
-      parameters: `Período: ${period}`,
+      generatedAt,
+      generatedBy: user?.displayName || user?.email || ROLE_NAMES[currentUserRole],
+      parameters: describeParameters(reportType, period),
     };
-    
-    addReportLog(newLog);
+
+    try {
+      await addReportLog(report);
+      toast.success('Relatório gerado. Abra o registro para pré-visualizar e baixar.');
+      setSelectedReport(report);
+    } catch (error) {
+      toast.error(describeError(error, 'Não foi possível registrar o relatório.'));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const exportToCSV = (log: ReportLog) => {
-    let csvContent = "";
-    let filename = "";
+  const handleDownload = (log: ReportLog) => {
+    const type = parseReportType(log.type);
+    const storedPeriod = REPORT_PERIODS.find((item) => log.parameters.startsWith(item.label))?.value ?? period;
+    const result = buildReport(type, storedPeriod, reportData);
 
-    if (log.type === 'Atendimentos') {
-      filename = `atendimentos_${new Date().getTime()}.csv`;
-      csvContent = "ID,Paciente,Médico,Data,Hora,Status,Tipo\n";
-      appointments.forEach(a => {
-        const pt = patients.find(p => p.id === a.patientId)?.name || 'Desconhecido';
-        const doc = doctors.find(d => d.id === a.doctorId)?.name || 'Desconhecido';
-        csvContent += `${a.id},"${pt}","${doc}",${a.date},${a.time},${a.status},${a.type}\n`;
-      });
-    } else if (log.type === 'Pacientes') {
-      filename = `pacientes_${new Date().getTime()}.csv`;
-      csvContent = "ID,Nome,CPF,Nascimento,Contato,Status\n";
-      patients.forEach(p => {
-        csvContent += `${p.id},"${p.name}","${p.cpf}",${p.birthDate},"${p.contact}",${p.status}\n`;
-      });
-    } else if (log.type === 'Estoque') {
-      filename = `estoque_${new Date().getTime()}.csv`;
-      csvContent = "ID,Nome,Lote,Validade,Quantidade,Minimo,Status\n";
-      inventory.forEach(i => {
-        csvContent += `${i.id},"${i.name}","${i.batch}",${i.expiryDate},${i.quantity},${i.minQuantity},${i.status}\n`;
-      });
-    } else {
-      filename = `relatorio_${log.type}_${new Date().getTime()}.csv`;
-      csvContent = "Dados agrupados não disponíveis para este tipo de relatório no momento.\n";
+    if (result.rows.length === 0) {
+      toast.warning('Não há dados para os filtros deste relatório.');
+      return;
     }
 
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); // Prefix with BOM for Excel UTF-8 support
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // `buildCSV` escapa aspas e separadores; a exportação anterior concatenava
+    // strings e quebrava o arquivo em nomes com vírgula ou aspas.
+    downloadCSV(buildCSV(result.headers, result.rows), reportFileName(type, log.generatedAt));
+    toast.success(`${result.rows.length} linha(s) exportada(s).`);
   };
 
   return (
-    <div className="space-y-6 flex-1 flex flex-col">
-      <div className="flex space-x-2 border-b border-gray-200">
+    <div className="flex flex-1 flex-col space-y-6">
+      <div className="flex gap-2 border-b border-gray-200" role="tablist">
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'reports'}
           onClick={() => setActiveTab('reports')}
-          className={`flex-1 py-3 text-sm font-medium border-b-2 flex items-center justify-center gap-2 transition ${activeTab === 'reports' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={cn(
+            'flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm font-medium transition',
+            activeTab === 'reports' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700',
+          )}
         >
-          <List className="w-4 h-4" /> Relatórios
+          <List className="h-4 w-4" aria-hidden="true" /> Relatórios
         </button>
         {currentUserRole === 'admin' && (
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'audit'}
             onClick={() => setActiveTab('audit')}
-            className={`flex-1 py-3 text-sm font-medium border-b-2 flex items-center justify-center gap-2 transition ${activeTab === 'audit' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm font-medium transition',
+              activeTab === 'audit' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700',
+            )}
           >
-            <Activity className="w-4 h-4" /> Logs de Auditoria
+            <Activity className="h-4 w-4" aria-hidden="true" /> Trilha de auditoria
           </button>
         )}
       </div>
@@ -98,261 +152,307 @@ export function Relatorios() {
       {activeTab === 'reports' ? (
         <>
           {canGenerate && (
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-6 sm:p-8">
-          <h2 className="text-lg font-semibold text-gray-800 mb-6 flex items-center">
-            <Filter className="w-5 h-5 mr-2 text-primary-600" />
-            Gerador de Relatórios
-          </h2>
-          <div className="flex flex-col md:flex-row gap-4 items-end">
-             <div className="w-full md:w-1/3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Relatório</label>
-              <select 
-                value={reportType}
-                onChange={e => setReportType(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="Atendimentos">Estatísticas de Atendimentos</option>
-                <option value="Pacientes">Cadastros de Pacientes Ativos</option>
-                <option value="Estoque">Consumo de Estoque / Posição Atual</option>
-                <option value="Faturamento">Faturamento Básico</option>
-              </select>
-            </div>
-            <div className="w-full md:w-1/3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Período</label>
-              <select 
-                value={period}
-                onChange={e => setPeriod(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="Hoje">Hoje</option>
-                <option value="7dias">Últimos 7 dias</option>
-                <option value="30dias">Últimos 30 dias</option>
-                <option value="MesAtual">Mês Atual</option>
-              </select>
-            </div>
-            <button 
-              onClick={handleGenerate}
-              className="w-full md:w-auto px-6 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition"
-            >
-              Executar e Gerar
-            </button>
-          </div>
-        </div>
-      )}
+            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="mb-6 flex items-center text-lg font-semibold text-gray-800">
+                <Filter className="mr-2 h-5 w-5 text-primary-600" aria-hidden="true" />
+                Gerador de relatórios
+              </h2>
+              <div className="flex flex-col items-end gap-4 md:flex-row">
+                <div className="w-full md:w-1/3">
+                  <label htmlFor="report-type" className="mb-1 block text-sm font-medium text-gray-700">Tipo de relatório</label>
+                  <select
+                    id="report-type"
+                    value={reportType}
+                    onChange={(event) => setReportType(event.target.value as ReportType)}
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+                  >
+                    {REPORT_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">{selectedTypeInfo?.description}</p>
+                </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-800">Relatórios Gerados Recentemente</h2>
-        </div>
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-gray-50 text-gray-600 font-medium">
-              <tr>
-                <th className="px-6 py-3">Data/Hora</th>
-                <th className="px-6 py-3">Título</th>
-                <th className="px-6 py-3">Parâmetros</th>
-                <th className="px-6 py-3">Responsável</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 text-gray-800">
-              {!isDataLoaded ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-48"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                  </tr>
-                ))
-              ) : reportLogs.length > 0 ? (
-                displayedReports.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedReport(log)}>
-                    <td className="px-6 py-4">{new Date(log.generatedAt).toLocaleString('pt-BR')}</td>
-                    <td className="px-6 py-4 font-medium flex items-center">
-                      <FileText className="w-4 h-4 mr-2 text-gray-400" />
-                      {log.title}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">{log.parameters}</td>
-                    <td className="px-6 py-4">{log.generatedBy}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">Nenhum relatório foi gerado ainda.</td></tr>
-              )}
-            </tbody>
-          </table>
-          {hasMoreReports && <div ref={loadMoreReportsRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
-        </div>
-      </div>
-        <Modal 
-          isOpen={!!selectedReport}
-          onClose={() => setSelectedReport(null)}
-          title="Detalhes do Relatório"
-          className="max-w-2xl"
-        >
-          {selectedReport && (
-            <div className="space-y-4">
-              <div className="flex items-center space-x-3 mb-6 p-4 bg-gray-50 rounded-xl">
-                <FileText className="w-8 h-8 text-primary-600" />
-                <div>
-                  <h3 className="font-semibold text-gray-900">{selectedReport.title}</h3>
-                  <p className="text-sm text-gray-500">{selectedReport.type}</p>
+                <div className="w-full md:w-1/3">
+                  <label htmlFor="report-period" className="mb-1 block text-sm font-medium text-gray-700">Período</label>
+                  <select
+                    id="report-period"
+                    value={period}
+                    onChange={(event) => setPeriod(event.target.value as ReportPeriod)}
+                    disabled={!selectedTypeInfo?.periodAware}
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-primary-500 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    {REPORT_PERIODS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">{describeParameters(reportType, period)}</p>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-500 font-medium">Data de Geração</p>
-                  <p className="text-gray-900">{new Date(selectedReport.generatedAt).toLocaleString('pt-BR')}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500 font-medium">Responsável</p>
-                  <p className="text-gray-900">{selectedReport.generatedBy}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-gray-500 font-medium">Parâmetros Utilizados</p>
-                  <p className="text-gray-900 bg-gray-50 p-2 text-xs rounded border border-gray-200 mt-1">{selectedReport.parameters}</p>
-                </div>
-              </div>
-              
-              <div className="pt-6 flex justify-end">
-                <button 
-                  onClick={() => {
-                    exportToCSV(selectedReport);
-                  }}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium transition"
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-6 py-3 font-medium text-white transition hover:bg-gray-800 disabled:opacity-60 md:w-auto"
                 >
-                  <Download className="w-5 h-5" />
-                  Baixar Relatório (CSV)
+                  {isGenerating && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                  {isGenerating ? 'Gerando...' : 'Executar e gerar'}
                 </button>
               </div>
-            </div>
+            </section>
           )}
-        </Modal>
 
-      </>
+          <section className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+            <div className="border-b border-gray-100 p-6">
+              <h2 className="text-lg font-semibold text-gray-800">Relatórios gerados recentemente</h2>
+            </div>
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full whitespace-nowrap text-left text-sm">
+                <thead className="bg-gray-50 font-medium text-gray-600">
+                  <tr>
+                    <th scope="col" className="px-6 py-3">Data/hora</th>
+                    <th scope="col" className="px-6 py-3">Título</th>
+                    <th scope="col" className="px-6 py-3">Parâmetros</th>
+                    <th scope="col" className="px-6 py-3">Responsável</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-gray-800">
+                  {!isDataLoaded ? (
+                    Array.from({ length: 5 }).map((_, index) => (
+                      <tr key={index} className="animate-pulse">
+                        {Array.from({ length: 4 }).map((__, cell) => (
+                          <td key={cell} className="px-6 py-4"><div className="h-4 w-24 rounded bg-gray-200" /></td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : displayedReports.length > 0 ? (
+                    displayedReports.map((log) => (
+                      <tr key={log.id} className="transition hover:bg-gray-50">
+                        <td className="px-6 py-4">{formatDateTimeBR(log.generatedAt)}</td>
+                        <td className="px-6 py-4 font-medium">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReport(log)}
+                            className="flex items-center rounded transition hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                          >
+                            <FileText className="mr-2 h-4 w-4 text-gray-400" aria-hidden="true" />
+                            {log.title}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 text-gray-500">{log.parameters}</td>
+                        <td className="px-6 py-4">{log.generatedBy}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-10 text-center text-gray-500">Nenhum relatório foi gerado ainda.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {hasMoreReports && (
+                <div ref={loadMoreReportsRef} className="flex h-10 items-center justify-center text-sm text-gray-400">
+                  Carregando mais...
+                </div>
+              )}
+            </div>
+          </section>
+        </>
       ) : (
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-          <div className="p-6 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-800">Trilha de Auditoria (Ações Críticas)</h2>
-            <p className="text-sm text-gray-500 mt-1">Exclusões lógicas, edições sensíveis e retiradas de estoque.</p>
+        <section className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-100 p-6">
+            <h2 className="text-lg font-semibold text-gray-800">Trilha de auditoria (ações críticas)</h2>
+            <p className="mt-1 text-sm text-gray-500">Exclusões lógicas, edições sensíveis e movimentações de estoque.</p>
           </div>
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-gray-50 text-gray-600 font-medium">
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full whitespace-nowrap text-left text-sm">
+              <thead className="bg-gray-50 font-medium text-gray-600">
                 <tr>
-                  <th className="px-6 py-3">Data/Hora</th>
-                  <th className="px-6 py-3">Ação</th>
-                  <th className="px-6 py-3">Entidade</th>
-                  <th className="px-6 py-3">Referência</th>
-                  <th className="px-6 py-3">Detalhes</th>
-                  <th className="px-6 py-3">ID Autor</th>
+                  <th scope="col" className="px-6 py-3">Data/hora</th>
+                  <th scope="col" className="px-6 py-3">Ação</th>
+                  <th scope="col" className="px-6 py-3">Entidade</th>
+                  <th scope="col" className="px-6 py-3">Referência</th>
+                  <th scope="col" className="px-6 py-3">Detalhes</th>
+                  <th scope="col" className="px-6 py-3">Autor</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 text-gray-800">
                 {!isDataLoaded ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-48"></div></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={index} className="animate-pulse">
+                      {Array.from({ length: 6 }).map((__, cell) => (
+                        <td key={cell} className="px-6 py-4"><div className="h-4 w-24 rounded bg-gray-200" /></td>
+                      ))}
                     </tr>
                   ))
-                ) : auditLogs.length > 0 ? (
-                  displayedAudits.map(log => (
-                    <tr 
-                      key={log.id} 
-                      className="hover:bg-gray-50 cursor-pointer transition"
-                      onClick={() => setSelectedAuditLog(log)}
-                      title="Ver detalhes da alteração"
-                    >
-                      <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
-                      <td className="px-6 py-4 font-medium"><span className="px-2.5 py-1 bg-gray-100 rounded-lg text-xs font-semibold">{log.action}</span></td>
+                ) : displayedAudits.length > 0 ? (
+                  displayedAudits.map((log) => (
+                    <tr key={log.id} className="transition hover:bg-gray-50">
+                      <td className="px-6 py-4">{formatDateTimeBR(log.timestamp)}</td>
+                      <td className="px-6 py-4 font-medium">
+                        <span className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold">{log.action}</span>
+                      </td>
                       <td className="px-6 py-4">{log.entityType}</td>
                       <td className="px-6 py-4">{log.entityName}</td>
-                      <td className="px-6 py-4 text-gray-500 whitespace-normal min-w-[200px]">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate max-w-[200px] inline-block">{log.details}</span>
-                          <Eye className="w-4 h-4 text-primary-500 shrink-0 opacity-50" />
-                        </div>
+                      <td className="min-w-[200px] whitespace-normal px-6 py-4 text-gray-500">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAuditLog(log)}
+                          className="flex items-center gap-2 rounded text-left transition hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                          title="Ver detalhes da alteração"
+                        >
+                          <span className="inline-block max-w-[220px] truncate">{log.details}</span>
+                          <Eye className="h-4 w-4 shrink-0 text-primary-500" aria-hidden="true" />
+                        </button>
                       </td>
-                      <td className="px-6 py-4 text-sm font-mono text-gray-400">{log.userId}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-gray-400">{log.userId}</td>
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum evento de auditoria registrado no momento.</td></tr>
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-gray-500">Nenhum evento de auditoria registrado.</td>
+                  </tr>
                 )}
               </tbody>
             </table>
-            {hasMoreAudits && <div ref={loadMoreAuditsRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
+            {hasMoreAudits && (
+              <div ref={loadMoreAuditsRef} className="flex h-10 items-center justify-center text-sm text-gray-400">
+                Carregando mais...
+              </div>
+            )}
           </div>
-        </div>
+        </section>
       )}
 
       <Modal
-        isOpen={!!selectedAuditLog}
-        onClose={() => setSelectedAuditLog(null)}
-        title="Detalhes da Auditoria"
+        isOpen={Boolean(selectedReport)}
+        onClose={() => setSelectedReport(null)}
+        title="Detalhes do relatório"
+        description={selectedReport?.parameters}
+        className="max-w-3xl"
       >
-        {selectedAuditLog && (
-          <div className="space-y-6">
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-semibold text-gray-800">{selectedAuditLog.action}</h3>
-                  <p className="text-sm text-gray-500">{selectedAuditLog.entityType}: {selectedAuditLog.entityName}</p>
-                </div>
-                <span className="text-xs font-mono text-gray-400 bg-white border border-gray-100 px-2 py-1 rounded">
-                  {new Date(selectedAuditLog.timestamp).toLocaleString('pt-BR')}
-                </span>
+        {selectedReport && previewResult && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 rounded-xl bg-gray-50 p-4">
+              <FileText className="h-8 w-8 text-primary-600" aria-hidden="true" />
+              <div>
+                <h3 className="font-semibold text-gray-900">{selectedReport.title}</h3>
+                <p className="text-sm text-gray-500">
+                  Gerado por {selectedReport.generatedBy} em {formatDateTimeBR(selectedReport.generatedAt)}
+                </p>
               </div>
-              <p className="text-sm text-gray-700 mt-2 p-3 bg-white border border-gray-100 rounded-lg">
-                {selectedAuditLog.details}
-              </p>
             </div>
 
-            {(selectedAuditLog.beforeData || selectedAuditLog.afterData) && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {previewResult.highlights.map((highlight) => (
+                <div key={highlight.label} className="rounded-xl border border-gray-200 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{highlight.label}</p>
+                  <p className="mt-1 font-semibold text-gray-900">{highlight.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-800">
+                Prévia ({Math.min(PREVIEW_ROWS, previewResult.rows.length)} de {previewResult.rows.length} linha(s))
+              </h4>
+              <div className="max-h-72 overflow-auto rounded-xl border border-gray-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                    <tr>
+                      {previewResult.headers.map((header) => (
+                        <th key={header} scope="col" className="whitespace-nowrap px-3 py-2 font-medium">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {previewResult.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        {row.map((cell, cellIndex) => (
+                          <td key={cellIndex} className="whitespace-nowrap px-3 py-2 text-gray-700">{String(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                    {previewResult.rows.length === 0 && (
+                      <tr>
+                        <td colSpan={previewResult.headers.length} className="px-3 py-6 text-center text-gray-500">
+                          Nenhum dado para os filtros deste relatório.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => handleDownload(selectedReport)}
+                disabled={previewResult.rows.length === 0}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 font-medium text-white transition hover:bg-primary-700 disabled:opacity-50 sm:w-auto"
+              >
+                <Download className="h-5 w-5" aria-hidden="true" />
+                Baixar CSV
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={Boolean(selectedAuditLog)} onClose={() => setSelectedAuditLog(null)} title="Detalhes da auditoria" className="max-w-2xl">
+        {selectedAuditLog && (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-800">{selectedAuditLog.action}</h3>
+                  <p className="text-sm text-gray-500">
+                    {selectedAuditLog.entityType}: {selectedAuditLog.entityName}
+                  </p>
+                </div>
+                <span className="rounded border border-gray-100 bg-white px-2 py-1 font-mono text-xs text-gray-400">
+                  {formatDateTimeBR(selectedAuditLog.timestamp)}
+                </span>
+              </div>
+              <p className="mt-2 rounded-lg border border-gray-100 bg-white p-3 text-sm text-gray-700">{selectedAuditLog.details}</p>
+            </div>
+
+            {Boolean(selectedAuditLog.beforeData || selectedAuditLog.afterData) && (
               <div>
-                <h4 className="text-sm font-semibold text-gray-800 mb-3 uppercase tracking-wider flex items-center gap-2">
-                  <Activity className="w-4 h-4" />
-                  Alterações nos Campos
+                <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-800">
+                  <Activity className="h-4 w-4" aria-hidden="true" />
+                  Alterações nos campos
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border border-red-100 bg-red-50/50 rounded-xl overflow-hidden">
-                    <div className="bg-red-100 px-3 py-2 text-xs font-semibold text-red-800 uppercase">Antes</div>
-                    <div className="p-3">
-                      {selectedAuditLog.beforeData ? (
-                        <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
-                          {JSON.stringify(selectedAuditLog.beforeData, null, 2)}
-                        </pre>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">Nenhum dado anterior</span>
-                      )}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {(
+                    [
+                      { label: 'Antes', data: selectedAuditLog.beforeData, tone: 'red' },
+                      { label: 'Depois', data: selectedAuditLog.afterData, tone: 'emerald' },
+                    ] as const
+                  ).map(({ label, data, tone }) => (
+                    <div key={label} className={cn('overflow-hidden rounded-xl border', tone === 'red' ? 'border-red-100 bg-red-50/50' : 'border-emerald-100 bg-emerald-50/50')}>
+                      <div className={cn('px-3 py-2 text-xs font-semibold uppercase', tone === 'red' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800')}>
+                        {label}
+                      </div>
+                      <div className="p-3">
+                        {data ? (
+                          <pre className="whitespace-pre-wrap font-mono text-xs text-gray-700">{JSON.stringify(data, null, 2)}</pre>
+                        ) : (
+                          <span className="text-xs italic text-gray-400">Sem dados registrados</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl overflow-hidden">
-                    <div className="bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800 uppercase">Depois</div>
-                    <div className="p-3">
-                      {selectedAuditLog.afterData ? (
-                        <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
-                          {JSON.stringify(selectedAuditLog.afterData, null, 2)}
-                        </pre>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">Nenhum dado atualizado</span>
-                      )}
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             )}
-            
-            <div className="pt-2 flex justify-end">
-              <button 
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
                 onClick={() => setSelectedAuditLog(null)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
+                className="rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50"
               >
                 Fechar
               </button>
@@ -360,7 +460,6 @@ export function Relatorios() {
           </div>
         )}
       </Modal>
-
     </div>
   );
 }

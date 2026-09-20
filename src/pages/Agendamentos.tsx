@@ -1,621 +1,835 @@
-import React, { useState } from 'react';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { FormEvent, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Edit2,
+  FileText,
+  LayoutList,
+  Plus,
+  Search,
+  XCircle,
+} from 'lucide-react';
+import { addDays, format, startOfWeek } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { useAppContext } from '../context/AppContext';
-import { Plus, Edit2, XCircle, AlertTriangle, Calendar as CalendarIcon, LayoutList, Search, FileText } from 'lucide-react';
-import { Appointment } from '../types';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { ImportExportButtons } from '../components/ui/ImportExportButtons';
-import { format, parseISO, startOfWeek, addDays, isSameDay } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { generateDocumentPDF } from '../lib/pdf';
+import { useToast } from '../components/ui/Toast';
+import { Appointment, AppointmentStatus, Doctor, Patient } from '../types';
+import {
+  STATUS_STYLES,
+  allowedStatusesFor,
+  canManageSchedule,
+  canRecordCare,
+  coerceStatus,
+  findScheduleConflict,
+  isValidTime,
+} from '../lib/appointments';
+import { generateDocumentPDF, DocumentType, DOCUMENT_TYPES } from '../lib/pdf';
+import { SpreadsheetRow, readField } from '../lib/spreadsheet';
+import { describeError } from '../lib/firebase-errors';
+import { formatDateBR, parseISODate, toISODate, todayISO } from '../lib/date';
+import { generateId, sanitizeId } from '../lib/id';
+import { cn } from '../lib/utils';
+
+/** Faixa padrão exibida no calendário; expande conforme os agendamentos. */
+const DEFAULT_FIRST_HOUR = 7;
+const DEFAULT_LAST_HOUR = 19;
+
+const DOCUMENT_STYLES: Record<DocumentType, { badge: string; hint: string }> = {
+  Comprovante: { badge: 'bg-slate-100 text-slate-600', hint: 'Comprovante de agendamento para o paciente.' },
+  Atestado: { badge: 'bg-blue-100 text-blue-600', hint: 'Atestado de comparecimento ou repouso, com CID-10 quando informado.' },
+  'Receituário': { badge: 'bg-emerald-100 text-emerald-600', hint: 'Prescrição de medicamentos.' },
+  Encaminhamento: { badge: 'bg-purple-100 text-purple-600', hint: 'Solicitação de exames ou encaminhamento a especialista.' },
+};
 
 export function Agendamentos() {
-  const { appointments, addAppointment, updateAppointment, patients, doctors, currentUserRole, isDataLoaded } = useAppContext();
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const { appointments, saveAppointment, patients, doctors, currentUserRole, isDataLoaded } = useAppContext();
+  const toast = useToast();
+
+  const [filterDate, setFilterDate] = useState(todayISO());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
-  const [cancelModal, setCancelModal] = useState<{isOpen: boolean; appt: Appointment | null}>({isOpen: false, appt: null});
+  const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; appointment: Appointment | null }>({ isOpen: false, appointment: null });
   const [cancelReason, setCancelReason] = useState('');
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [searchTerm, setSearchTerm] = useState('');
-  const [docModal, setDocModal] = useState<{isOpen: boolean; appt: Appointment | null}>({isOpen: false, appt: null});
+  const [docModal, setDocModal] = useState<{ isOpen: boolean; appointment: Appointment | null }>({ isOpen: false, appointment: null });
+  const [isSaving, setIsSaving] = useState(false);
 
-  const canEdit = currentUserRole === 'admin' || currentUserRole === 'reception';
+  const canSchedule = canManageSchedule(currentUserRole);
+  const canCare = canRecordCare(currentUserRole);
+  const isEditing = Boolean(editingAppt?.id);
 
-  const filteredAppointments = appointments
-    .filter(a => a.date === filterDate)
-    .filter(a => {
-      if (!searchTerm.trim()) return true;
-      const term = searchTerm.toLowerCase();
-      const pt = patients.find(p => p.id === a.patientId);
-      const doc = doctors.find(d => d.id === a.doctorId);
-      return pt?.name.toLowerCase().includes(term) || doc?.name.toLowerCase().includes(term);
-    })
-    .sort((a, b) => a.time.localeCompare(b.time));
+  const matchesSearch = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return () => true;
+    return (appointment: Appointment) => {
+      const patient = patients.find((item) => item.id === appointment.patientId);
+      const doctor = doctors.find((item) => item.id === appointment.doctorId);
+      return Boolean(patient?.name.toLowerCase().includes(term) || doctor?.name.toLowerCase().includes(term));
+    };
+  }, [searchTerm, patients, doctors]);
 
-  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredAppointments, 15);
+  const filteredAppointments = useMemo(
+    () =>
+      appointments
+        .filter((appointment) => appointment.date === filterDate)
+        .filter(matchesSearch)
+        .sort((a, b) => a.time.localeCompare(b.time)),
+    [appointments, filterDate, matchesSearch],
+  );
 
-  const handleFormChange = (e: React.FormEvent<HTMLFormElement>) => {
-    const formData = new FormData(e.currentTarget);
-    const date = formData.get('date') as string;
-    const time = formData.get('time') as string;
-    const doctorId = formData.get('doctorId') as string;
+  const { displayedItems, loadMoreRef, hasMore } = useInfiniteScroll(filteredAppointments, 15, `${filterDate}|${searchTerm}`);
 
-    if (date && time && doctorId) {
-      const conflict = appointments.find(a => a.doctorId === doctorId && a.date === date && a.time === time && a.id !== editingAppt?.id && a.status !== 'Cancelado');
-      if (conflict) {
-        const doc = doctors.find(d => d.id === doctorId);
-        setConflictError(`O profissional ${doc?.name || ''} já possui um agendamento para as ${time} no dia ${format(parseISO(date), 'dd/MM/yyyy')}.`);
-      } else {
-        setConflictError(null);
-      }
-    } else {
-      setConflictError(null);
+  const weekDays = useMemo(() => {
+    const reference = parseISODate(filterDate) ?? new Date();
+    const firstDay = startOfWeek(reference, { weekStartsOn: 1 });
+    return Array.from({ length: 7 }).map((_, index) => addDays(firstDay, index));
+  }, [filterDate]);
+
+  /** Mostra também os horários fora do expediente padrão que já têm agenda. */
+  const calendarHours = useMemo(() => {
+    const isoDays = new Set(weekDays.map(toISODate));
+    const hours = new Set<number>();
+    for (let hour = DEFAULT_FIRST_HOUR; hour <= DEFAULT_LAST_HOUR; hour++) hours.add(hour);
+    for (const appointment of appointments) {
+      if (!isoDays.has(appointment.date)) continue;
+      const hour = Number(appointment.time.slice(0, 2));
+      if (Number.isFinite(hour)) hours.add(hour);
     }
+    return Array.from(hours).sort((a, b) => a - b);
+  }, [appointments, weekDays]);
+
+  const shiftWeek = (weeks: number) => {
+    const reference = parseISODate(filterDate) ?? new Date();
+    setFilterDate(toISODate(addDays(reference, weeks * 7)));
   };
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setConflictError(null);
-    const formData = new FormData(e.currentTarget);
-    
-    const date = formData.get('date') as string;
-    const time = formData.get('time') as string;
-    const doctorId = formData.get('doctorId') as string;
-    
-    const conflict = appointments.find(a => a.doctorId === doctorId && a.date === date && a.time === time && a.id !== editingAppt?.id && a.status !== 'Cancelado');
-    if (conflict) {
-      const doc = doctors.find(d => d.id === doctorId);
-      setConflictError(`O profissional ${doc?.name || ''} já possui um agendamento para as ${time} no dia ${format(parseISO(date), 'dd/MM/yyyy')}.`);
+  const describeConflict = (doctorId: string, date: string, time: string) => {
+    const doctor = doctors.find((item) => item.id === doctorId);
+    return `${doctor?.name || 'O profissional'} já possui um agendamento às ${time} em ${formatDateBR(date)}.`;
+  };
+
+  const handleFormChange = (event: FormEvent<HTMLFormElement>) => {
+    const formData = new FormData(event.currentTarget);
+    const date = String(formData.get('date') ?? editingAppt?.date ?? '');
+    const time = String(formData.get('time') ?? editingAppt?.time ?? '');
+    const doctorId = String(formData.get('doctorId') ?? editingAppt?.doctorId ?? '');
+
+    const conflict = date && time && doctorId
+      ? findScheduleConflict(appointments, { doctorId, date, time, ignoreId: editingAppt?.id })
+      : undefined;
+
+    setConflictError(conflict ? describeConflict(doctorId, date, time) : null);
+  };
+
+  const handleSave = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const existing = isEditing ? editingAppt : null;
+
+    /**
+     * Campos desabilitados não entram no `FormData`. A versão anterior lia
+     * tudo do formulário, então um médico que apenas mudasse o status gravava
+     * `patientId`, `date` e `time` vazios — o agendamento era destruído.
+     * Cada campo agora cai de volta no valor já persistido.
+     */
+    const patientId = String(formData.get('patientId') ?? '') || existing?.patientId || '';
+    const doctorId = String(formData.get('doctorId') ?? '') || existing?.doctorId || '';
+    const date = String(formData.get('date') ?? '') || existing?.date || '';
+    const time = String(formData.get('time') ?? '') || existing?.time || '';
+    const type = (String(formData.get('type') ?? '') || existing?.type || 'Consulta') as Appointment['type'];
+
+    if (!patientId || !doctorId || !date || !time) {
+      toast.error('Preencha paciente, profissional, data e horário.');
+      return;
+    }
+    if (!isValidTime(time)) {
+      toast.error('Horário inválido.');
       return;
     }
 
-    const newAppt: Appointment = {
-      id: editingAppt?.id || Math.random().toString(36).substr(2, 9),
-      patientId: formData.get('patientId') as string,
-      doctorId: formData.get('doctorId') as string,
-      type: formData.get('type') as any,
+    const conflict = findScheduleConflict(appointments, { doctorId, date, time, ignoreId: existing?.id });
+    if (conflict) {
+      setConflictError(describeConflict(doctorId, date, time));
+      return;
+    }
+    setConflictError(null);
+
+    const statusField = formData.get('status');
+    const status: AppointmentStatus = statusField ? coerceStatus(statusField, existing?.status) : (existing?.status ?? 'Agendado');
+
+    const appointment: Appointment = {
+      id: existing?.id || generateId(),
+      patientId,
+      doctorId,
+      type,
       date,
       time,
-      status: (formData.get('status') as any) || 'Agendado',
-      notes: formData.get('notes') as string,
+      status,
+      notes: String(formData.get('notes') ?? existing?.notes ?? '').trim(),
+      // O CID-10 tinha campo no formulário mas nunca era incluído no payload:
+      // o que o médico digitava era descartado ao salvar.
+      cid10: String(formData.get('cid10') ?? existing?.cid10 ?? '').trim() || undefined,
     };
 
-    if (editingAppt && editingAppt.id) updateAppointment(newAppt);
-    else addAppointment(newAppt);
-    
-    setIsModalOpen(false);
+    setIsSaving(true);
+    try {
+      await saveAppointment(appointment, existing ? 'update' : 'create');
+      toast.success(existing ? 'Agendamento atualizado.' : 'Agendamento criado.');
+      setIsModalOpen(false);
+      setEditingAppt(null);
+    } catch (error) {
+      toast.error(describeError(error, 'Não foi possível salvar o agendamento.'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleCellClick = (dayIso: string, hourPrefix: string) => {
-    if (!canEdit) return;
-    setEditingAppt({
-      id: '',
-      patientId: '',
-      doctorId: '',
-      type: 'Consulta',
-      date: dayIso,
-      time: `${hourPrefix}:00`,
-      status: 'Agendado',
-      notes: ''
+  const handleCancel = async () => {
+    const appointment = cancelModal.appointment;
+    if (!appointment || !cancelReason.trim()) return;
+
+    setIsSaving(true);
+    try {
+      await saveAppointment(
+        {
+          ...appointment,
+          status: 'Cancelado',
+          notes: `${appointment.notes || ''}\nCancelado: ${cancelReason.trim()}`.trim(),
+        },
+        'update',
+      );
+      toast.success('Agendamento cancelado.');
+      setCancelModal({ isOpen: false, appointment: null });
+      setCancelReason('');
+    } catch (error) {
+      toast.error(describeError(error, 'Não foi possível cancelar o agendamento.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDropAppointment = async (appointment: Appointment, newDate: string, newTime: string) => {
+    if (!canSchedule || (appointment.date === newDate && appointment.time === newTime)) return;
+
+    const conflict = findScheduleConflict(appointments, {
+      doctorId: appointment.doctorId,
+      date: newDate,
+      time: newTime,
+      ignoreId: appointment.id,
     });
+    if (conflict) {
+      toast.error(describeConflict(appointment.doctorId, newDate, newTime));
+      return;
+    }
+
+    try {
+      await saveAppointment({ ...appointment, date: newDate, time: newTime }, 'update');
+      toast.success(`Reagendado para ${formatDateBR(newDate)} às ${newTime}.`);
+    } catch (error) {
+      toast.error(describeError(error, 'Não foi possível reagendar.'));
+    }
+  };
+
+  const handleImport = async (rows: SpreadsheetRow[]) => {
+    let imported = 0;
+    const problems: string[] = [];
+
+    /** Aceita o ID, o CPF ou o nome do paciente/profissional na planilha. */
+    const resolvePatient = (value: string): Patient | undefined => {
+      const normalized = value.trim().toLowerCase();
+      return patients.find(
+        (patient) =>
+          patient.id === value ||
+          patient.cpf.replace(/\D/g, '') === value.replace(/\D/g, '') ||
+          patient.name.toLowerCase() === normalized,
+      );
+    };
+    const resolveDoctor = (value: string): Doctor | undefined => {
+      const normalized = value.trim().toLowerCase();
+      return doctors.find((doctor) => doctor.id === value || doctor.crm === value || doctor.name.toLowerCase() === normalized);
+    };
+
+    for (const [index, row] of rows.entries()) {
+      const line = index + 2;
+      const patient = resolvePatient(readField(row, 'patientId', 'paciente', 'cpf'));
+      const doctor = resolveDoctor(readField(row, 'doctorId', 'profissional', 'medico', 'crm'));
+      const date = readField(row, 'date', 'data');
+      const time = readField(row, 'time', 'hora', 'horario');
+
+      if (!patient || !doctor) {
+        problems.push(`Linha ${line}: paciente ou profissional não encontrado no cadastro.`);
+        continue;
+      }
+      if (!parseISODate(date) || !isValidTime(time)) {
+        problems.push(`Linha ${line}: data (AAAA-MM-DD) ou hora (HH:MM) inválida.`);
+        continue;
+      }
+      if (findScheduleConflict(appointments, { doctorId: doctor.id, date, time })) {
+        problems.push(`Linha ${line}: conflito de horário para ${doctor.name}.`);
+        continue;
+      }
+
+      const appointment: Appointment = {
+        id: sanitizeId(readField(row, 'id')) ?? generateId(),
+        patientId: patient.id,
+        doctorId: doctor.id,
+        type: readField(row, 'type', 'tipo') === 'Exame' ? 'Exame' : 'Consulta',
+        date,
+        time,
+        status: coerceStatus(readField(row, 'status')),
+        notes: readField(row, 'notes', 'observacoes'),
+      };
+
+      try {
+        await saveAppointment(appointment, 'create');
+        imported++;
+      } catch (error) {
+        problems.push(`Linha ${line}: ${describeError(error, 'falha ao gravar.')}`);
+      }
+    }
+
+    if (imported > 0) toast.success(`${imported} agendamento(s) importado(s).`);
+    if (problems.length > 0) {
+      toast.warning(`${problems.length} linha(s) ignorada(s). ${problems.slice(0, 2).join(' ')}`);
+      console.warn('Importação de agendamentos:', problems);
+    }
+  };
+
+  const openNew = (date?: string, time?: string) => {
+    if (!canSchedule) return;
+    setEditingAppt(
+      date
+        ? { id: '', patientId: '', doctorId: '', type: 'Consulta', date, time: time ?? '08:00', status: 'Agendado', notes: '' }
+        : null,
+    );
     setConflictError(null);
     setIsModalOpen(true);
   };
 
-  const requestCancel = (a: Appointment) => {
-    if (!canEdit) return;
-    setCancelReason('');
-    setCancelModal({isOpen: true, appt: a});
+  const openExisting = (appointment: Appointment) => {
+    setEditingAppt(appointment);
+    setConflictError(null);
+    setIsModalOpen(true);
   };
 
-  const handleCancel = () => {
-    if (!cancelModal.appt) return;
-    const a = cancelModal.appt;
-    updateAppointment({ ...a, status: 'Cancelado', notes: `${a.notes || ''}\nCancelado: ${cancelReason}`.trim() });
-    setCancelModal({isOpen: false, appt: null});
-  };
-
-  const handleDropAppointment = (appt: Appointment, newDate: string, newTime: string) => {
-    if (!canEdit) return;
-    const conflict = appointments.find(a => a.doctorId === appt.doctorId && a.date === newDate && a.time === newTime && a.id !== appt.id && a.status !== 'Cancelado');
-    if (conflict) {
-      const doc = doctors.find(d => d.id === appt.doctorId);
-      alert(`Conflito de Horário: O profissional ${doc?.name || ''} já possui um agendamento para as ${newTime} no dia ${format(parseISO(newDate), 'dd/MM/yyyy')}.`);
-      return;
-    }
-    updateAppointment({ ...appt, date: newDate, time: newTime });
-  };
-
-  const handleImport = async (data: any[]) => {
-    let count = 0;
-    for (const row of data) {
-      if (row.patientId && row.doctorId && row.date && row.time) {
-        const newAppt: Appointment = {
-          id: row.id || Math.random().toString(36).substr(2, 9),
-          patientId: row.patientId,
-          doctorId: row.doctorId,
-          type: row.type || 'Consulta',
-          date: row.date,
-          time: row.time,
-          status: row.status || 'Agendado',
-          notes: row.notes || '',
-        };
-        addAppointment(newAppt);
-        count++;
-      }
-    }
-    if (count > 0) alert(`${count} agendamento(s) importado(s) com sucesso! Note que é necessário prover o patientId e doctorId corretos.`);
-  };
-
-  const statusColors = {
-    'Agendado': 'bg-blue-100 text-blue-800',
-    'Concluído': 'bg-emerald-100 text-emerald-800',
-    'Cancelado': 'bg-gray-100 text-gray-600 line-through',
-  };
+  const statusOptions = allowedStatusesFor(currentUserRole, editingAppt?.status);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        {canEdit ? (
-          <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
-            <ImportExportButtons 
-              onImport={handleImport}
-              exportData={appointments}
-              exportFileName="agendamentos"
-            />
-            <button 
-              onClick={() => { setEditingAppt(null); setConflictError(null); setIsModalOpen(true); }}
-              className="flex items-center px-4 py-2.5 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition whitespace-nowrap"
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex w-full items-center gap-3 sm:w-auto">
+          <ImportExportButtons onImport={handleImport} exportData={appointments} exportFileName="agendamentos" canImport={canSchedule} />
+          {canSchedule && (
+            <button
+              type="button"
+              onClick={() => openNew()}
+              className="flex items-center whitespace-nowrap rounded-xl bg-gray-900 px-4 py-2.5 font-medium text-white transition hover:bg-gray-800"
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Novo Agendamento
+              <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+              Novo agendamento
             </button>
-          </div>
-        ) : <div />}
-        <div className="flex items-center bg-gray-100 p-1 rounded-xl">
-          <button
-            onClick={() => setViewMode('list')}
-            className={`flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <LayoutList className="w-4 h-4 mr-1.5" />
-            Lista
-          </button>
-          <button
-            onClick={() => setViewMode('calendar')}
-            className={`flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition ${viewMode === 'calendar' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <CalendarIcon className="w-4 h-4 mr-1.5" />
-            Calendário
-          </button>
+          )}
+        </div>
+
+        <div className="flex items-center rounded-xl bg-gray-100 p-1" role="group" aria-label="Modo de visualização">
+          {(['list', 'calendar'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              aria-pressed={viewMode === mode}
+              className={cn(
+                'flex items-center rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                viewMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+              )}
+            >
+              {mode === 'list' ? (
+                <><LayoutList className="mr-1.5 h-4 w-4" aria-hidden="true" /> Lista</>
+              ) : (
+                <><CalendarIcon className="mr-1.5 h-4 w-4" aria-hidden="true" /> Calendário</>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-        <div className="p-6 border-b border-gray-100 flex flex-wrap gap-4 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Data de Filtro:</label>
-            <input 
-              type="date"
-              className="border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              value={filterDate}
-              onChange={e => setFilterDate(e.target.value)}
-            />
-          </div>
-          <div className="relative flex-1 max-w-md w-full ml-auto">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-gray-400" />
-            </div>
+      <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 p-6">
+          <div className="flex items-center gap-2">
+            {viewMode === 'calendar' && (
+              <button type="button" onClick={() => shiftWeek(-1)} aria-label="Semana anterior" className="rounded-lg border border-gray-300 p-1.5 text-gray-600 transition hover:bg-gray-50">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+            <label htmlFor="filter-date" className="whitespace-nowrap text-sm font-medium text-gray-700">
+              {viewMode === 'calendar' ? 'Semana de:' : 'Data:'}
+            </label>
             <input
-              type="text"
-              placeholder="Buscar por nome do paciente ou médico..."
-              className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              id="filter-date"
+              type="date"
+              className="rounded-lg border border-gray-300 px-3 py-1.5 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+              value={filterDate}
+              onChange={(event) => setFilterDate(event.target.value || todayISO())}
+            />
+            {viewMode === 'calendar' && (
+              <button type="button" onClick={() => shiftWeek(1)} aria-label="Próxima semana" className="rounded-lg border border-gray-300 p-1.5 text-gray-600 transition hover:bg-gray-50">
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+            <button type="button" onClick={() => setFilterDate(todayISO())} className="rounded-lg px-2 py-1.5 text-sm font-medium text-primary-600 transition hover:bg-primary-50">
+              Hoje
+            </button>
+          </div>
+
+          <div className="relative ml-auto w-full max-w-md flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Buscar por paciente ou profissional"
+              placeholder="Buscar por paciente ou profissional..."
+              className="w-full rounded-lg border border-gray-300 py-1.5 pl-9 pr-3 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
         </div>
+
         {viewMode === 'list' ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-gray-50 text-gray-600 font-medium">
-              <tr>
-                <th className="px-6 py-3">Horário</th>
-                <th className="px-6 py-3">Paciente</th>
-                <th className="px-6 py-3">Profissional</th>
-                <th className="px-6 py-3">Tipo</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 text-gray-800">
-              {!isDataLoaded ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-32"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
-                    <td className="px-6 py-4"><div className="h-6 bg-gray-200 rounded-full w-24"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-8"></div></td>
-                  </tr>
-                ))
-              ) : filteredAppointments.length > 0 ? (
-                displayedItems.map(a => {
-                  const pt = patients.find(p => p.id === a.patientId);
-                  const doc = doctors.find(d => d.id === a.doctorId);
-                  return (
-                    <tr key={a.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 font-semibold">{a.time}</td>
-                      <td className="px-6 py-4">{pt?.name || 'Desconhecido'}</td>
-                      <td className="px-6 py-4">{doc?.name || 'Indefinido'}</td>
-                      <td className="px-6 py-4">{a.type}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[a.status]}`}>
-                          {a.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => { setEditingAppt(a); setConflictError(null); setIsModalOpen(true); }}
-                            className="text-primary-600 hover:text-primary-900 transition"
-                            title="Ver Detalhes/Editar"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          {(canEdit || currentUserRole === 'doctor') && (
-                            <button
-                              onClick={() => setDocModal({ isOpen: true, appt: a })}
-                              className="text-gray-400 hover:text-blue-600 transition"
-                              title="Gerar Documento Médico"
-                            >
-                              <FileText className="w-4 h-4" />
-                            </button>
-                          )}
-                          {canEdit && a.status === 'Agendado' && (
-                            <button 
-                              onClick={() => requestCancel(a)}
-                              className="text-gray-400 hover:text-rose-600 transition"
-                              title="Cancelar Agendamento"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+          <div className="overflow-x-auto">
+            <table className="w-full whitespace-nowrap text-left text-sm">
+              <thead className="bg-gray-50 font-medium text-gray-600">
+                <tr>
+                  <th scope="col" className="px-6 py-3">Horário</th>
+                  <th scope="col" className="px-6 py-3">Paciente</th>
+                  <th scope="col" className="px-6 py-3">Profissional</th>
+                  <th scope="col" className="px-6 py-3">Tipo</th>
+                  <th scope="col" className="px-6 py-3">Status</th>
+                  <th scope="col" className="px-6 py-3">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 text-gray-800">
+                {!isDataLoaded ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={index} className="animate-pulse">
+                      {Array.from({ length: 6 }).map((__, cell) => (
+                        <td key={cell} className="px-6 py-4"><div className="h-4 w-20 rounded bg-gray-200" /></td>
+                      ))}
                     </tr>
-                  )
-                })
-              ) : (
-                <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500">Nenhum agendamento para esta data.</td></tr>
-              )}
-            </tbody>
-          </table>
-          {hasMore && <div ref={loadMoreRef} className="h-10 flex justify-center items-center text-gray-400 text-sm">Carregando mais...</div>}
-        </div>
-        ) : (
-          <div className="overflow-x-auto p-4 bg-gray-50">
-             <div className="min-w-[900px] border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white relative">
-                {!isDataLoaded && (
-                  <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center backdrop-blur-[1px]">
-                    <div className="animate-pulse text-gray-500 font-medium">Carregando calendário...</div>
-                  </div>
-                )}
-                <div className="grid grid-cols-[80px_repeat(6,1fr)] border-b border-gray-200 bg-gray-50">
-                    <div className="p-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider border-r border-gray-200">Hora</div>
-                    {Array.from({ length: 6 }).map((_, i) => {
-                      const day = addDays(startOfWeek(filterDate ? parseISO(filterDate) : new Date(), { weekStartsOn: 1 }), i);
-                      return (
-                        <div key={day.toISOString()} className={`p-3 text-center border-r border-gray-200 last:border-r-0 ${isSameDay(day, new Date()) ? 'bg-primary-50/50' : ''}`}>
-                           <div className={`text-xs font-semibold ${isSameDay(day, new Date()) ? 'text-primary-700' : 'text-gray-500 uppercase'}`}>{format(day, 'EEEE', {locale: ptBR}).split('-')[0]}</div>
-                           <div className={`text-lg font-bold mt-0.5 ${isSameDay(day, new Date()) ? 'text-primary-700' : 'text-gray-900'}`}>{format(day, 'dd/MM')}</div>
-                        </div>
-                      )
-                    })}
-                </div>
-                
-                <div className="flex flex-col">
-                  {Array.from({ length: 11 }).map((_, i) => {
-                    const hour = `${(i + 8).toString().padStart(2, '0')}:00`;
-                    const hourPrefix = hour.substring(0, 2);
+                  ))
+                ) : displayedItems.length > 0 ? (
+                  displayedItems.map((appointment) => {
+                    const patient = patients.find((item) => item.id === appointment.patientId);
+                    const doctor = doctors.find((item) => item.id === appointment.doctorId);
+                    const isOpen = appointment.status !== 'Concluído' && appointment.status !== 'Cancelado';
+
                     return (
-                     <div key={hour} className="grid grid-cols-[80px_repeat(6,1fr)] border-b border-gray-100 last:border-b-0">
-                        <div className="p-3 text-xs font-medium text-gray-400 border-r border-gray-200 flex items-start justify-center relative bg-gray-50/50">
-                           <span className="-mt-1 bg-gray-50/50 block w-full text-center">{hour}</span>
-                        </div>
-                        {Array.from({ length: 6 }).map((_, j) => {
-                           const day = addDays(startOfWeek(filterDate ? parseISO(filterDate) : new Date(), { weekStartsOn: 1 }), j);
-                           const dayIso = format(day, 'yyyy-MM-dd');
-                           const hourAppts = appointments.filter(a => {
-                             if (a.date !== dayIso || a.time.substring(0, 2) !== hourPrefix || a.status === 'Cancelado') return false;
-                             if (!searchTerm.trim()) return true;
-                             const term = searchTerm.toLowerCase();
-                             const pt = patients.find(p => p.id === a.patientId);
-                             const doc = doctors.find(d => d.id === a.doctorId);
-                             return pt?.name.toLowerCase().includes(term) || doc?.name.toLowerCase().includes(term);
-                           });
-                           
-                           return (
-                             <div 
-                               key={dayIso} 
-                               onClick={() => handleCellClick(dayIso, hourPrefix)}
-                               onDragOver={(e) => e.preventDefault()}
-                               onDrop={(e) => {
-                                 e.preventDefault();
-                                 const apptId = e.dataTransfer.getData('text/plain');
-                                 if (apptId) {
-                                   const droppedAppt = appointments.find(a => a.id === apptId);
-                                   if (droppedAppt) handleDropAppointment(droppedAppt, dayIso, `${hourPrefix}:00`);
-                                 }
-                               }}
-                               className={`p-1.5 min-h-[100px] border-r border-gray-100 last:border-r-0 relative hover:bg-gray-50/50 transition cursor-crosshair group flex flex-col gap-1.5 ${isSameDay(day, new Date()) ? 'bg-primary-50/10' : ''}`}
-                             >
-                                {hourAppts.map(appt => {
-                                   const ptName = patients.find(p => p.id === appt.patientId)?.name || 'Paciente';
-                                   const doc = doctors.find(d => d.id === appt.doctorId);
-                                   return (
-                                      <div 
-                                        key={appt.id} 
-                                        draggable={canEdit}
-                                        onDragStart={(e) => e.dataTransfer.setData('text/plain', appt.id)}
-                                        onClick={(e) => { e.stopPropagation(); setEditingAppt(appt); setConflictError(null); setIsModalOpen(true); }}
-                                        className={`mb-1.5 p-1.5 rounded-md text-xs cursor-pointer shadow-sm transition border ${canEdit ? 'hover:cursor-grab active:cursor-grabbing' : ''} ${appt.type === 'Consulta' ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 flex-col flex'}`}
-                                        title={`${appt.time} - ${ptName} (${doc?.name || '-'})`}
-                                      >
-                                        <div className="font-semibold leading-tight mb-0.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{appt.time} - {ptName}</div>
-                                        <div className="opacity-80 leading-tight text-[10px] truncate">{doc?.name}</div>
-                                      </div>
-                                   )
-                                })}
-                             </div>
-                           );
-                        })}
-                     </div>
-                  )})}
+                      <tr key={appointment.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 font-mono font-semibold">{appointment.time}</td>
+                        <td className="px-6 py-4">{patient?.name || 'Paciente removido'}</td>
+                        <td className="px-6 py-4">{doctor?.name || 'Profissional removido'}</td>
+                        <td className="px-6 py-4">{appointment.type}</td>
+                        <td className="px-6 py-4">
+                          <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', STATUS_STYLES[appointment.status])}>
+                            {appointment.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openExisting(appointment)}
+                              className="text-primary-600 transition hover:text-primary-800"
+                              title="Ver detalhes / editar"
+                            >
+                              <Edit2 className="h-4 w-4" aria-hidden="true" />
+                              <span className="sr-only">Ver detalhes</span>
+                            </button>
+                            {(canSchedule || canCare) && patient && (
+                              <button
+                                type="button"
+                                onClick={() => setDocModal({ isOpen: true, appointment })}
+                                className="text-gray-400 transition hover:text-blue-600"
+                                title="Emitir documento"
+                              >
+                                <FileText className="h-4 w-4" aria-hidden="true" />
+                                <span className="sr-only">Emitir documento</span>
+                              </button>
+                            )}
+                            {canSchedule && isOpen && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCancelReason('');
+                                  setCancelModal({ isOpen: true, appointment });
+                                }}
+                                className="text-gray-400 transition hover:text-rose-600"
+                                title="Cancelar agendamento"
+                              >
+                                <XCircle className="h-4 w-4" aria-hidden="true" />
+                                <span className="sr-only">Cancelar</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      Nenhum agendamento para {formatDateBR(filterDate)}.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {hasMore && (
+              <div ref={loadMoreRef} className="flex h-10 items-center justify-center text-sm text-gray-400">
+                Carregando mais...
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto bg-gray-50 p-4">
+            <div className="relative min-w-[900px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              {!isDataLoaded && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+                  <span className="animate-pulse font-medium text-gray-500">Carregando calendário...</span>
                 </div>
-             </div>
+              )}
+
+              <div className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-gray-200 bg-gray-50">
+                <div className="border-r border-gray-200 p-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Hora
+                </div>
+                {weekDays.map((day) => {
+                  const isToday = toISODate(day) === todayISO();
+                  return (
+                    <div key={day.toISOString()} className={cn('border-r border-gray-200 p-3 text-center last:border-r-0', isToday && 'bg-primary-50/60')}>
+                      <div className={cn('text-xs font-semibold uppercase', isToday ? 'text-primary-700' : 'text-gray-500')}>
+                        {format(day, 'EEEE', { locale: ptBR }).split('-')[0]}
+                      </div>
+                      <div className={cn('mt-0.5 text-lg font-bold', isToday ? 'text-primary-700' : 'text-gray-900')}>
+                        {format(day, 'dd/MM')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col">
+                {calendarHours.map((hour) => {
+                  const hourLabel = `${String(hour).padStart(2, '0')}:00`;
+                  const hourPrefix = String(hour).padStart(2, '0');
+
+                  return (
+                    <div key={hour} className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-gray-100 last:border-b-0">
+                      <div className="border-r border-gray-200 bg-gray-50/50 p-3 text-center text-xs font-medium text-gray-400">
+                        {hourLabel}
+                      </div>
+                      {weekDays.map((day) => {
+                        const isoDay = toISODate(day);
+                        const isToday = isoDay === todayISO();
+                        const cellAppointments = appointments.filter(
+                          (appointment) =>
+                            appointment.date === isoDay &&
+                            appointment.time.slice(0, 2) === hourPrefix &&
+                            appointment.status !== 'Cancelado' &&
+                            matchesSearch(appointment),
+                        );
+
+                        return (
+                          <div
+                            key={isoDay}
+                            onClick={() => openNew(isoDay, `${hourPrefix}:00`)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const id = event.dataTransfer.getData('text/plain');
+                              const dropped = appointments.find((appointment) => appointment.id === id);
+                              if (dropped) void handleDropAppointment(dropped, isoDay, `${hourPrefix}:00`);
+                            }}
+                            className={cn(
+                              'relative flex min-h-[90px] flex-col gap-1.5 border-r border-gray-100 p-1.5 transition last:border-r-0 hover:bg-gray-50/70',
+                              canSchedule && 'cursor-crosshair',
+                              isToday && 'bg-primary-50/20',
+                            )}
+                          >
+                            {cellAppointments.map((appointment) => {
+                              const patientName = patients.find((item) => item.id === appointment.patientId)?.name || 'Paciente';
+                              const doctor = doctors.find((item) => item.id === appointment.doctorId);
+                              return (
+                                <button
+                                  key={appointment.id}
+                                  type="button"
+                                  draggable={canSchedule}
+                                  onDragStart={(event) => event.dataTransfer.setData('text/plain', appointment.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openExisting(appointment);
+                                  }}
+                                  title={`${appointment.time} · ${patientName} · ${doctor?.name || '-'} · ${appointment.status}`}
+                                  className={cn(
+                                    'w-full rounded-md border p-1.5 text-left text-xs shadow-sm transition',
+                                    canSchedule && 'hover:cursor-grab active:cursor-grabbing',
+                                    appointment.type === 'Consulta'
+                                      ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                      : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+                                  )}
+                                >
+                                  <span className="block truncate font-semibold leading-tight">
+                                    {appointment.time} · {patientName}
+                                  </span>
+                                  <span className="block truncate text-[10px] leading-tight opacity-80">{doctor?.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      <Modal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        title={editingAppt?.id ? 'Gerenciar Agendamento' : 'Novo Agendamento'}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={isEditing ? 'Gerenciar agendamento' : 'Novo agendamento'}
+        description={isEditing ? 'O paciente do agendamento não pode ser alterado. Cancele e reagende se necessário.' : undefined}
       >
         <form onSubmit={handleSave} onChange={handleFormChange} className="space-y-4">
           {conflictError && (
-            <div className="bg-red-50 border border-red-100 text-red-700 p-4 rounded-xl flex items-start space-x-3 text-sm">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" aria-hidden="true" />
               <div>
-                <p className="font-semibold text-red-800">Conflito de Horário</p>
+                <p className="font-semibold text-red-800">Conflito de horário</p>
                 <p>{conflictError}</p>
               </div>
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Paciente</label>
-              <select required name="patientId" defaultValue={editingAppt?.patientId || ''} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
+              <label htmlFor="appt-patient" className="mb-1 block text-sm font-medium text-gray-700">Paciente</label>
+              <select
+                id="appt-patient"
+                required={!isEditing}
+                name="patientId"
+                defaultValue={editingAppt?.patientId || ''}
+                disabled={!canSchedule || isEditing}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              >
                 <option value="">Selecione...</option>
-                {patients.filter(p => p.status === 'active').map(p => (
-                  <option key={p.id} value={p.id}>{p.cpf} - {p.name}</option>
-                ))}
+                {patients
+                  .filter((patient) => patient.status === 'active' || patient.id === editingAppt?.patientId)
+                  .map((patient) => (
+                    <option key={patient.id} value={patient.id}>
+                      {patient.name} — {patient.cpf}
+                    </option>
+                  ))}
               </select>
             </div>
-            
+
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Profissional / Setor</label>
-              <select required name="doctorId" defaultValue={editingAppt?.doctorId || ''} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
+              <label htmlFor="appt-doctor" className="mb-1 block text-sm font-medium text-gray-700">Profissional</label>
+              <select
+                id="appt-doctor"
+                required
+                name="doctorId"
+                defaultValue={editingAppt?.doctorId || ''}
+                disabled={!canSchedule}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              >
                 <option value="">Selecione...</option>
-                {doctors.filter(d => d.status === 'active').map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
-                ))}
+                {doctors
+                  .filter((doctor) => doctor.status === 'active' || doctor.id === editingAppt?.doctorId)
+                  .map((doctor) => (
+                    <option key={doctor.id} value={doctor.id}>
+                      {doctor.name} ({doctor.specialty})
+                    </option>
+                  ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <select name="type" defaultValue={editingAppt?.type || 'Consulta'} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500">
+              <label htmlFor="appt-type" className="mb-1 block text-sm font-medium text-gray-700">Tipo</label>
+              <select
+                id="appt-type"
+                name="type"
+                defaultValue={editingAppt?.type || 'Consulta'}
+                disabled={!canSchedule}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              >
                 <option value="Consulta">Consulta</option>
                 <option value="Exame">Exame</option>
               </select>
             </div>
 
-            {(canEdit || currentUserRole === 'doctor') && editingAppt?.id && (
+            {isEditing && statusOptions.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select name="status" defaultValue={editingAppt.status || ''} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                  {canEdit && (
-                    <>
-                      <option value="Agendado">Agendado</option>
-                      <option value="Confirmado">Confirmado</option>
-                      <option value="Aguardando Atendimento">Aguardando Atendimento</option>
-                      <option value="Cancelado">Cancelado</option>
-                      <option value="Faltou">Faltou</option>
-                    </>
-                  )}
-                  {currentUserRole === 'doctor' && (
-                    <>
-                      <option value="Em Andamento">Em Andamento</option>
-                      <option value="Concluído">Concluído</option>
-                    </>
-                  )}
-                  {currentUserRole === 'admin' && (
-                    <>
-                      <option value="Em Andamento">Em Andamento</option>
-                      <option value="Concluído">Concluído</option>
-                    </>
-                  )}
+                <label htmlFor="appt-status" className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+                <select
+                  id="appt-status"
+                  name="status"
+                  defaultValue={editingAppt?.status}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+                >
+                  {statusOptions.map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
                 </select>
               </div>
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
-              <input required type="date" name="date" defaultValue={editingAppt?.date} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              <label htmlFor="appt-date" className="mb-1 block text-sm font-medium text-gray-700">Data</label>
+              <input
+                id="appt-date"
+                required
+                type="date"
+                name="date"
+                defaultValue={editingAppt?.date || filterDate}
+                disabled={!canSchedule}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Horário</label>
-              <input required type="time" name="time" defaultValue={editingAppt?.time} disabled={!canEdit} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              <label htmlFor="appt-time" className="mb-1 block text-sm font-medium text-gray-700">Horário</label>
+              <input
+                id="appt-time"
+                required
+                type="time"
+                name="time"
+                defaultValue={editingAppt?.time}
+                disabled={!canSchedule}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
-              <textarea name="notes" defaultValue={editingAppt?.notes} rows={3} disabled={!canEdit && currentUserRole !== 'doctor'} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+              <label htmlFor="appt-notes" className="mb-1 block text-sm font-medium text-gray-700">Observações</label>
+              <textarea
+                id="appt-notes"
+                name="notes"
+                defaultValue={editingAppt?.notes}
+                rows={3}
+                disabled={!canSchedule && !canCare}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+              />
             </div>
 
-            {(canEdit || currentUserRole === 'doctor') && editingAppt?.id && (
+            {isEditing && canCare && (
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">CID-10 (Opcional)</label>
-                <input type="text" name="cid10" defaultValue={editingAppt?.cid10} placeholder="Ex: J01.9, I10" disabled={currentUserRole !== 'doctor' && currentUserRole !== 'admin'} className="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-50 focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="appt-cid" className="mb-1 block text-sm font-medium text-gray-700">CID-10 (opcional)</label>
+                <input
+                  id="appt-cid"
+                  type="text"
+                  name="cid10"
+                  defaultValue={editingAppt?.cid10}
+                  placeholder="Ex.: J01.9, I10"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 uppercase focus:ring-2 focus:ring-primary-500"
+                />
               </div>
             )}
           </div>
-          
-          <div className="pt-4 flex justify-end gap-3">
-             <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
-              {canEdit || currentUserRole === 'doctor' ? 'Cancelar' : 'Fechar'}
-             </button>
-             {(canEdit || currentUserRole === 'doctor') && (
-               <button 
-                 type="submit" 
-                 disabled={!!conflictError}
-                 className="px-4 py-2 text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium transition"
-               >
-                 Salvar
-               </button>
-             )}
+
+          <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setIsModalOpen(false)} className="rounded-lg bg-gray-100 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-200">
+              {canSchedule || canCare ? 'Cancelar' : 'Fechar'}
+            </button>
+            {(canSchedule || (canCare && isEditing)) && (
+              <button
+                type="submit"
+                disabled={Boolean(conflictError) || isSaving}
+                className="rounded-lg bg-primary-600 px-4 py-2 font-medium text-white transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSaving ? 'Salvando...' : 'Salvar'}
+              </button>
+            )}
           </div>
         </form>
       </Modal>
 
       <ConfirmModal
         isOpen={cancelModal.isOpen}
-        onClose={() => setCancelModal({isOpen: false, appt: null})}
+        onClose={() => setCancelModal({ isOpen: false, appointment: null })}
         onConfirm={handleCancel}
-        title="Cancelar Agendamento"
+        isLoading={isSaving}
+        title="Cancelar agendamento"
         message={
-          <div className="flex flex-col space-y-4 w-full min-w-[280px]">
-            <p>
-              Tem certeza que deseja cancelar este agendamento?
-            </p>
-            <div className="flex flex-col w-full">
-              <label className="text-sm font-semibold text-gray-700 mb-1">Motivo do Cancelamento <span className="text-red-500">*</span></label>
-              <textarea 
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 outline-none" 
-                rows={3} 
+          <div className="flex w-full flex-col space-y-4">
+            <p>Tem certeza que deseja cancelar este agendamento? O horário volta a ficar disponível.</p>
+            <div className="flex flex-col">
+              <label htmlFor="cancel-reason" className="mb-1 text-sm font-semibold text-gray-700">
+                Motivo do cancelamento <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                id="cancel-reason"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500"
+                rows={3}
                 placeholder="Informe o motivo para registro..."
                 value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
+                onChange={(event) => setCancelReason(event.target.value)}
               />
+              {!cancelReason.trim() && <p className="mt-1 text-xs text-rose-500">O motivo é obrigatório.</p>}
             </div>
-            {!cancelReason.trim() && <p className="text-xs text-rose-500">O motivo é obrigatório.</p>}
           </div>
         }
-        confirmText="Confirmar Cancelamento"
+        confirmText="Confirmar cancelamento"
         confirmDisabled={!cancelReason.trim()}
       />
 
       <Modal
         isOpen={docModal.isOpen}
-        onClose={() => setDocModal({isOpen: false, appt: null})}
-        title="Emitir Documento Médico"
+        onClose={() => setDocModal({ isOpen: false, appointment: null })}
+        title="Emitir documento"
+        description="Selecione o tipo de documento a gerar em PDF."
       >
-        <div className="space-y-6">
-           <p className="text-sm text-gray-600">Selecione o tipo de documento que deseja emitir para o paciente.</p>
-           
-           <div className="grid grid-cols-1 gap-3">
-             <button 
-               onClick={() => {
-                 if (docModal.appt) {
-                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
-                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
-                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Comprovante');
-                 }
-                 setDocModal({isOpen: false, appt: null});
-               }}
-               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
-             >
-               <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 group-hover:bg-slate-200">
-                 <FileText className="w-5 h-5" />
-               </div>
-               <div>
-                 <h4 className="font-bold text-gray-800">Comprovante de Agendamento</h4>
-                 <p className="text-xs text-gray-500 mt-1">Imprime comprovante para o paciente e senha (Uso da Recepção).</p>
-               </div>
-             </button>
-
-             <button 
-               onClick={() => {
-                 if (docModal.appt) {
-                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
-                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
-                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Atestado');
-                 }
-                 setDocModal({isOpen: false, appt: null});
-               }}
-               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
-             >
-               <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-200">
-                 <FileText className="w-5 h-5" />
-               </div>
-               <div>
-                 <h4 className="font-bold text-gray-800">Atestado Médico</h4>
-                 <p className="text-xs text-gray-500 mt-1">Gera atestado de comparecimento ou repouso com CID-10.</p>
-               </div>
-             </button>
-
-             <button 
-               onClick={() => {
-                 if (docModal.appt) {
-                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
-                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
-                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Receituário');
-                 }
-                 setDocModal({isOpen: false, appt: null});
-               }}
-               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
-             >
-               <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-200">
-                 <FileText className="w-5 h-5" />
-               </div>
-               <div>
-                 <h4 className="font-bold text-gray-800">Receituário</h4>
-                 <p className="text-xs text-gray-500 mt-1">Prescrição de medicamentos (Gera solicitação na Farmácia se interno).</p>
-               </div>
-             </button>
-
-             <button 
-               onClick={() => {
-                 if (docModal.appt) {
-                   const p = patients.find(pat => pat.id === docModal.appt?.patientId);
-                   const d = doctors.find(docD => docD.id === docModal.appt?.doctorId);
-                   if (p) generateDocumentPDF(p, docModal.appt, d, 'Encaminhamento');
-                 }
-                 setDocModal({isOpen: false, appt: null});
-               }}
-               className="p-4 border border-gray-200 hover:border-primary-500 hover:bg-primary-50 rounded-xl text-left transition flex items-center gap-4 group"
-             >
-               <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center shrink-0 group-hover:bg-purple-200">
-                 <FileText className="w-5 h-5" />
-               </div>
-               <div>
-                 <h4 className="font-bold text-gray-800">Encaminhamento</h4>
-                 <p className="text-xs text-gray-500 mt-1">Solicitação de exames ou encaminhamento para especialista.</p>
-               </div>
-             </button>
-           </div>
-
-           <div className="pt-4 flex justify-end">
-             <button onClick={() => setDocModal({isOpen: false, appt: null})} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
-               Fechar
-             </button>
-           </div>
+        <div className="grid grid-cols-1 gap-3">
+          {DOCUMENT_TYPES.map((docType) => (
+            <button
+              key={docType}
+              type="button"
+              onClick={async () => {
+                const appointment = docModal.appointment;
+                const patient = patients.find((item) => item.id === appointment?.patientId);
+                const doctor = doctors.find((item) => item.id === appointment?.doctorId);
+                if (!appointment || !patient) {
+                  toast.error('Paciente não encontrado para este agendamento.');
+                  return;
+                }
+                try {
+                  await generateDocumentPDF(patient, appointment, doctor, docType);
+                  setDocModal({ isOpen: false, appointment: null });
+                } catch (error) {
+                  toast.error(describeError(error, 'Não foi possível gerar o documento.'));
+                }
+              }}
+              className="flex items-center gap-4 rounded-xl border border-gray-200 p-4 text-left transition hover:border-primary-500 hover:bg-primary-50"
+            >
+              <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-full', DOCUMENT_STYLES[docType].badge)}>
+                <FileText className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-bold text-gray-800">{docType}</span>
+                <span className="mt-1 block text-xs text-gray-500">{DOCUMENT_STYLES[docType].hint}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </Modal>
     </div>
